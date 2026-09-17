@@ -1,0 +1,44 @@
+/**
+ * 变量芯片样式
+ */
+
+.var-chip {
+  background-color: #e6f7ff;
+  border: 1px solid #91d5ff;
+  color: #0050b3;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-weight: 500;
+  cursor: default;
+  display: inline-block;
+  margin: 0 2px;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  white-space: nowrap;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.var-chip:hover {
+  background-color: #bae7ff;
+  border-color: #69c0ff;
+}
+
+.var-chip:focus {
+  outline: 2px solid #1890ff;
+  outline-offset: 1px;
+}
+
+/* 打印时的样式 */
+@media print {
+  .var-chip {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background-color: #e6f7ff !important;
+    border: 1px solid #91d5ff !important;
+    color: #0050b3 !important;
+  }
+}
