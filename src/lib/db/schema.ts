@@ -1,5 +1,5 @@
 // 数据库 Schema 定义
-import { mysqlTable, int, text, datetime, json, boolean, varchar, uniqueIndex } from 'drizzle-orm/mysql-core';
+import { mysqlTable, int, text, datetime, json, boolean, varchar, decimal, uniqueIndex, index } from 'drizzle-orm/mysql-core';
 
 // 用户表
 export const users = mysqlTable('users', {
@@ -44,6 +44,26 @@ export const templates = mysqlTable('templates', {
   isPublic: boolean('is_public').default(false),
   createdAt: datetime('created_at').notNull(),
   updatedAt: datetime('updated_at').notNull(),
+});
+
+// 自定义纸张预设表
+// 权限：默认仅创建者可用；is_public = 1 时其他用户可见可用（只读）；status = 'disabled' 由管理员停用
+export const paperPresets = mysqlTable('paper_presets', {
+  id: int('id').autoincrement().primaryKey(),
+  userId: int('user_id').references(() => users.id),
+  name: varchar('name', { length: 50 }).notNull(),
+  // 尺寸单位 mm，统一按纵向基准存储（width <= height）
+  widthMm: decimal('width_mm', { precision: 6, scale: 1 }).notNull(),
+  heightMm: decimal('height_mm', { precision: 6, scale: 1 }).notNull(),
+  isPublic: boolean('is_public').default(false),
+  status: varchar('status', { length: 20 }).notNull().default('active'),
+  createdAt: datetime('created_at').notNull(),
+  updatedAt: datetime('updated_at').notNull(),
+}, (table) => {
+  return {
+    userPaperNameUnique: uniqueIndex('user_paper_name_unique').on(table.userId, table.name),
+    publicStatusIdx: index('idx_paper_public_status').on(table.isPublic, table.status),
+  };
 });
 
 // 模板分享表

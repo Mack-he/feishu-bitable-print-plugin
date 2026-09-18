@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEditorStore } from '@/store/editorStore';
 import { useUserStore } from '@/store/userStore';
 import { useTemplateStore } from '@/store/templateStore';
+import { usePaperPresetStore } from '@/store/paperPresetStore';
 import { mockBitableData } from '@/data/mockData';
 import { Field } from '@/types/editor';
 import { HomePage } from '@/components/editor/HomePage';
@@ -22,6 +23,7 @@ export default function PrintPluginApp() {
   const { setFields, setSystemFields, setTemplateName } = useEditorStore();
   const { user, token, hasAuthorizations, logout, setHasAuthorizations } = useUserStore();
   const { fetchTemplates, setCurrentTemplate, saveTemplate } = useTemplateStore();
+  const { fetchPresets, reset: resetPaperPresets } = usePaperPresetStore();
 
   // 计算登录状态
   const isLoggedIn = !!token && !!user;
@@ -52,6 +54,11 @@ export default function PrintPluginApp() {
     // 加载用户模板列表
     fetchTemplates().catch((error) => {
       console.error('[PrintPluginApp] 加载模板列表失败:', error);
+    });
+
+    // 加载自定义纸张列表（我的 + 他人公开的）
+    fetchPresets().catch((error) => {
+      console.error('[PrintPluginApp] 加载纸张列表失败:', error);
     });
 
     // 从模拟数据或真实数据中获取字段
@@ -91,7 +98,7 @@ export default function PrintPluginApp() {
 
     setFields(fields);
     setSystemFields(systemFields);
-  }, [setFields, setSystemFields, isLoggedIn, fetchTemplates]);
+  }, [setFields, setSystemFields, isLoggedIn, fetchTemplates, fetchPresets]);
 
   // 处理创建新排版
   const handleCreateNew = async () => {
@@ -161,6 +168,8 @@ export default function PrintPluginApp() {
   // 处理退出登录
   const handleLogout = () => {
     logout();
+    // 清空纸张缓存，避免下一个账号看到上一个账号的自定义纸张
+    resetPaperPresets();
     router.push('/login');
   };
 
@@ -179,6 +188,7 @@ export default function PrintPluginApp() {
       if (result.success) {
         // 清除本地登录状态
         logout();
+        resetPaperPresets();
         // 跳转到登录页面
         router.push('/login');
       } else {

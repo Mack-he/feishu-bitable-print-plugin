@@ -15,7 +15,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useEditorStore } from '@/store/editorStore';
-import { PAGE_SIZES, CanvasComponentNode, Field } from '@/types/editor';
+import { CanvasComponentNode, Field } from '@/types/editor';
+import { MM_TO_PX, resolvePaperPx, paperToJsPdfFormat } from '@/lib/paper';
+import { usePaperPresets } from '@/store/paperPresetStore';
 import { 
   Printer, 
   Download, 
@@ -88,12 +90,10 @@ export function PrintPreviewDialog({ open, onOpenChange }: PrintPreviewDialogPro
   const [isProcessingAttachments, setIsProcessingAttachments] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
 
-  // 计算画布尺寸
-  const mmToPx = 3.78;
-  const pageSize = PAGE_SIZES[pageConfig.size];
+  // 计算画布尺寸（内置纸张与自定义纸张统一走解析层）
+  const paperPresets = usePaperPresets();
+  const { canvasWidth, canvasHeight } = resolvePaperPx(pageConfig, paperPresets);
   const isLandscape = pageConfig.orientation === 'landscape';
-  const canvasWidth = isLandscape ? pageSize.height * mmToPx : pageSize.width * mmToPx;
-  const canvasHeight = isLandscape ? pageSize.width * mmToPx : pageSize.height * mmToPx;
 
   // 缩放控制
   const handleZoomIn = () => {
@@ -132,7 +132,7 @@ export function PrintPreviewDialog({ open, onOpenChange }: PrintPreviewDialogPro
   const isEmptyPreview = dataSourceMode === 'template' || (dataSourceMode === 'data' && records.length === 0);
 
   // 计算内容区域宽度（考虑页边距）- 与 CanvasArea 保持一致
-  const contentWidth = canvasWidth - (pageConfig.margins.left + pageConfig.margins.right) * mmToPx;
+  const contentWidth = canvasWidth - (pageConfig.margins.left + pageConfig.margins.right) * MM_TO_PX;
 
   // 获取组件宽度样式 - 与 CanvasArea 保持一致
   const getComponentWidthStyle = useCallback((width: string) => {
@@ -327,7 +327,8 @@ export function PrintPreviewDialog({ open, onOpenChange }: PrintPreviewDialogPro
       const pdf = new jsPDF({
         orientation: isLandscape ? 'landscape' : 'portrait',
         unit: 'mm',
-        format: pageConfig.size,
+        // 自定义纸张不能传字符串格式，统一传纵向基准的 [宽, 高]（jsPDF 按 orientation 自动交换）
+        format: paperToJsPdfFormat(pageConfig, paperPresets),
       });
       
       const imgWidth = pdf.internal.pageSize.getWidth();
@@ -341,7 +342,7 @@ export function PrintPreviewDialog({ open, onOpenChange }: PrintPreviewDialogPro
     } finally {
       setIsExporting(false);
     }
-  }, [previewRef, isLandscape, pageConfig.size, templateName]);
+  }, [previewRef, isLandscape, pageConfig, paperPresets, templateName]);
 
   // 全选/取消全选
   const allSelected = records.length > 0 && selectedRecordIds.length === records.length;
@@ -604,7 +605,7 @@ export function PrintPreviewDialog({ open, onOpenChange }: PrintPreviewDialogPro
                       style={{
                         width: `${canvasWidth * scale}px`,
                         minHeight: `${canvasHeight * scale}px`,
-                        padding: `${pageConfig.margins.top * mmToPx * scale}px ${pageConfig.margins.right * mmToPx * scale}px ${pageConfig.margins.bottom * mmToPx * scale}px ${pageConfig.margins.left * mmToPx * scale}px`,
+                        padding: `${pageConfig.margins.top * MM_TO_PX * scale}px ${pageConfig.margins.right * MM_TO_PX * scale}px ${pageConfig.margins.bottom * MM_TO_PX * scale}px ${pageConfig.margins.left * MM_TO_PX * scale}px`,
                         fontFamily: styleConfig.fontFamily,
                         marginBottom: '20px',
                       }}
@@ -648,7 +649,7 @@ export function PrintPreviewDialog({ open, onOpenChange }: PrintPreviewDialogPro
                       style={{
                         width: `${canvasWidth * scale}px`,
                         minHeight: `${canvasHeight * scale}px`,
-                        padding: `${pageConfig.margins.top * mmToPx * scale}px ${pageConfig.margins.right * mmToPx * scale}px ${pageConfig.margins.bottom * mmToPx * scale}px ${pageConfig.margins.left * mmToPx * scale}px`,
+                        padding: `${pageConfig.margins.top * MM_TO_PX * scale}px ${pageConfig.margins.right * MM_TO_PX * scale}px ${pageConfig.margins.bottom * MM_TO_PX * scale}px ${pageConfig.margins.left * MM_TO_PX * scale}px`,
                         fontFamily: styleConfig.fontFamily,
                       }}
                     >

@@ -12,12 +12,14 @@ import {
   Home,
   Ticket,
   Key,
+  Ruler,
 } from 'lucide-react';
 
 const navItems = [
   { href: '/admins/dashboard', label: '仪表板', icon: LayoutDashboard },
   { href: '/admins/licenses', label: '授权码管理', icon: Ticket },
   { href: '/admins/templates', label: '模板管理', icon: FileText },
+  { href: '/admins/papers', label: '纸张管理', icon: Ruler },
   { href: '/admins/settings', label: '系统设置', icon: Settings },
 ];
 

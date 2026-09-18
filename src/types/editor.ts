@@ -432,12 +432,8 @@ export interface PrintRecord {
 }
 
 // 页面尺寸常量 (单位: mm)
-export const PAGE_SIZES: Record<string, { width: number; height: number }> = {
-  A4: { width: 210, height: 297 },
-  A3: { width: 297, height: 420 },
-  Letter: { width: 216, height: 279 },
-  Legal: { width: 216, height: 356 },
-};
+// 数据源已迁移到 @/lib/paper，此处保留导出以兼容既有引用
+export { PAGE_SIZES, BUILT_IN_PAPERS, MM_TO_PX } from '@/lib/paper';
 
 // 默认组件尺寸（流式布局版本）
 export const DEFAULT_COMPONENT_SIZES: Record<ComponentType, { width: number; height: number }> = {
@@ -456,18 +452,8 @@ export const DEFAULT_COMPONENT_SIZES: Record<ComponentType, { width: number; hei
   fieldContainer: { width: 100, height: 60 }, // 字段容器
 };
 
-// 默认页面配置
-export const DEFAULT_PAGE_CONFIG: PageConfig = {
-  size: 'A4',
-  orientation: 'portrait',
-  margins: {
-    top: 20,
-    bottom: 20,
-    left: 20,
-    right: 20,
-  },
-  continuous: false,
-};
+// 默认页面配置（定义在 @/lib/paper，此处再导出）
+export { DEFAULT_PAGE_CONFIG } from '@/lib/paper';
 
 // 默认样式配置
 export const DEFAULT_STYLE_CONFIG: StyleConfig = {

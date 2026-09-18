@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAdminStore } from '@/store/adminStore';
+import { resolvePaper } from '@/lib/paper';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -369,7 +370,7 @@ export default function TemplatesPage() {
                             </div>
                             <div className="text-center p-3 bg-slate-50 rounded-lg">
                               <p className="text-2xl font-bold text-slate-700">
-                                {previewTemplate.data.pageConfig?.width || 'A4'} × {previewTemplate.data.pageConfig?.height || 'A4'}
+                                {resolvePaper(previewTemplate.data.pageConfig).width} × {resolvePaper(previewTemplate.data.pageConfig).height} mm
                               </p>
                               <p className="text-xs text-muted-foreground">页面尺寸</p>
                             </div>

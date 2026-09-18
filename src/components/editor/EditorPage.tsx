@@ -16,7 +16,9 @@ import {
 } from '@dnd-kit/core';
 import { useEditorStore } from '@/store/editorStore';
 import { useTemplateStore, UserTemplate } from '@/store/templateStore';
-import { ComponentType, PAGE_SIZES, TextComponent, Field } from '@/types/editor';
+import { ComponentType, TextComponent, Field } from '@/types/editor';
+import { paperLabel, resolvePaper } from '@/lib/paper';
+import { usePaperPresets } from '@/store/paperPresetStore';
 import {
   Database,
   LayoutGrid,
@@ -155,6 +157,8 @@ export function EditorPage({ onExit }: EditorPageProps) {
     loadTemplateFromData,
     selectComponent,
   } = useEditorStore();
+
+  const paperPresets = usePaperPresets();
 
   // 🔥 使用统一服务层获取数据（自动选择 SDK/API 模式）
   useEffect(() => {
@@ -1245,7 +1249,7 @@ export function EditorPage({ onExit }: EditorPageProps) {
   };
 
   // 纸张尺寸显示
-  const pageSizeDisplay = `${pageConfig.size}/${pageConfig.orientation === 'portrait' ? '纵向' : '横向'}`;
+  const pageSizeDisplay = `${paperLabel(pageConfig, paperPresets)}/${pageConfig.orientation === 'portrait' ? '纵向' : '横向'}`;
 
   return (
     <DndContext
@@ -1600,7 +1604,7 @@ export function EditorPage({ onExit }: EditorPageProps) {
           <div className="flex items-center gap-4">
             <span>组件: {components.length}</span>
             <span>|</span>
-            <span>纸张: {PAGE_SIZES[pageConfig.size]?.width}×{PAGE_SIZES[pageConfig.size]?.height}mm</span>
+            <span>纸张: {resolvePaper(pageConfig, paperPresets).width}×{resolvePaper(pageConfig, paperPresets).height}mm</span>
           </div>
         </footer>
       </div>

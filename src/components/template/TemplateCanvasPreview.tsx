@@ -14,7 +14,8 @@ import {
   Ruler,
   Layers
 } from 'lucide-react';
-import { PAGE_SIZES } from '@/types/editor';
+import { MM_TO_PX, resolvePaperPx, paperLabel } from '@/lib/paper';
+import { usePaperPresets } from '@/store/paperPresetStore';
 
 // 组件类型图标映射
 const componentTypeIcons: Record<string, React.ReactNode> = {
@@ -353,19 +354,10 @@ export function TemplateCanvasPreview({
   const variables = useMemo(() => extractVariables(components), [components]);
   const { stats, totalCount } = useMemo(() => analyzeComponents(components), [components]);
 
-  // 计算页面尺寸 - 与编辑器一致
-  const mmToPx = 3.78;
-  const pageSize = PAGE_SIZES[pageConfig.size || 'A4'];
+  // 计算页面尺寸 - 与编辑器一致（内置纸张与自定义纸张统一走解析层）
+  const paperPresets = usePaperPresets();
   const isLandscape = pageConfig.orientation === 'landscape';
-  
-  const canvasWidth = isLandscape ? pageSize.height * mmToPx : pageSize.width * mmToPx;
-  const canvasHeight = isLandscape ? pageSize.width * mmToPx : pageSize.height * mmToPx;
-  
-  // 页边距 - 与编辑器一致
-  const margins = pageConfig.margins || { top: 20, right: 20, bottom: 20, left: 20 };
-  
-  const contentWidth = canvasWidth - (margins.left + margins.right) * mmToPx;
-  const contentHeight = canvasHeight - (margins.top + margins.bottom) * mmToPx;
+  const { canvasWidth, canvasHeight, contentWidth, contentHeight } = resolvePaperPx(pageConfig, paperPresets);
 
   return (
     <div className={`space-y-4 ${className}`}>
@@ -415,7 +407,7 @@ export function TemplateCanvasPreview({
         <div className="flex items-center justify-between mb-2">
           <span className="text-sm font-medium text-slate-700">画布预览</span>
           <span className="text-xs text-slate-500">
-            {pageConfig.size || 'A4'} {isLandscape ? '横向' : '纵向'} · {scale * 100}%
+            {paperLabel(pageConfig, paperPresets)} · {scale * 100}%
           </span>
         </div>
         
@@ -426,7 +418,7 @@ export function TemplateCanvasPreview({
               style={{
                 width: `${canvasWidth * scale}px`,
                 minHeight: `${canvasHeight * scale}px`,
-                padding: `${margins.top * mmToPx * scale}px ${margins.right * mmToPx * scale}px ${margins.bottom * mmToPx * scale}px ${margins.left * mmToPx * scale}px`,
+                padding: `${(pageConfig.margins?.top ?? 20) * MM_TO_PX * scale}px ${(pageConfig.margins?.right ?? 20) * MM_TO_PX * scale}px ${(pageConfig.margins?.bottom ?? 20) * MM_TO_PX * scale}px ${(pageConfig.margins?.left ?? 20) * MM_TO_PX * scale}px`,
                 fontFamily: styleConfig.fontFamily || 'Arial',
                 fontSize: (styleConfig.fontSize || 14) * scale,
                 transform: `scale(${scale})`,

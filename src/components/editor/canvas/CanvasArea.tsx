@@ -17,7 +17,9 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { useEditorStore } from '@/store/editorStore';
-import { PAGE_SIZES, ComponentType, CanvasComponentNode } from '@/types/editor';
+import { ComponentType, CanvasComponentNode } from '@/types/editor';
+import { MM_TO_PX, resolvePaperPx } from '@/lib/paper';
+import { usePaperPresets } from '@/store/paperPresetStore';
 import { Plus, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { InsertionIndicator } from './InsertionIndicator';
 import { SortableItem } from './SortableItem';
@@ -80,6 +82,7 @@ export function CanvasArea() {
     reorderComponents,
     updateComponent,
   } = useEditorStore();
+  const paperPresets = usePaperPresets();
   
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
@@ -100,16 +103,8 @@ export function CanvasArea() {
     })
   );
 
-  // 计算画布尺寸
-  const mmToPx = 3.78;
-  const pageSize = PAGE_SIZES[pageConfig.size];
-  const isLandscape = pageConfig.orientation === 'landscape';
-  
-  const canvasWidth = isLandscape ? pageSize.height * mmToPx : pageSize.width * mmToPx;
-  const canvasHeight = isLandscape ? pageSize.width * mmToPx : pageSize.height * mmToPx;
-  
-  const contentWidth = canvasWidth - (pageConfig.margins.left + pageConfig.margins.right) * mmToPx;
-  const contentHeight = canvasHeight - (pageConfig.margins.top + pageConfig.margins.bottom) * mmToPx;
+  // 计算画布尺寸（内置纸张与自定义纸张统一走解析层）
+  const { canvasWidth, canvasHeight, contentWidth, contentHeight } = resolvePaperPx(pageConfig, paperPresets);
 
   // 找到正在拖拽的组件数据
   const activeComponent = isFromPanel 
@@ -319,7 +314,7 @@ export function CanvasArea() {
             style={{
               width: `${canvasWidth}px`,
               minHeight: `${canvasHeight}px`,
-              padding: `${pageConfig.margins.top * mmToPx}px ${pageConfig.margins.right * mmToPx}px ${pageConfig.margins.bottom * mmToPx}px ${pageConfig.margins.left * mmToPx}px`,
+              padding: `${pageConfig.margins.top * MM_TO_PX}px ${pageConfig.margins.right * MM_TO_PX}px ${pageConfig.margins.bottom * MM_TO_PX}px ${pageConfig.margins.left * MM_TO_PX}px`,
               fontFamily: styleConfig.fontFamily,
               transform: `scale(${scale})`,
               transformOrigin: 'top left',
