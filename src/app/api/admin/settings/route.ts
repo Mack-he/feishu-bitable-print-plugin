@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { systemConfigs } from '@/lib/db/schema';
-import { eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
 // 获取系统配置
 export async function GET(request: Request) {
@@ -82,6 +82,8 @@ export async function POST(request: Request) {
         value: String(value),
         description,
         isEncrypted: isEncrypted ?? false,
+        createdAt: new Date(),
+        updatedAt: new Date(),
       });
     }
 
@@ -138,6 +140,8 @@ export async function PUT(request: Request) {
           value: String(value),
           description,
           isEncrypted: isEncrypted ?? false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         });
       }
     }

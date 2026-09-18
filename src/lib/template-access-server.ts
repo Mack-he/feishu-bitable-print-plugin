@@ -25,13 +25,17 @@ export interface TemplateWithAccess {
   ownerName?: string | null;
 }
 
-/** 当前用户的部门上下文 */
+/**
+ * 当前用户的部门上下文
+ * 只统计仍有效的部门（同步时被标记为 inactive 的部门不参与授权判定），
+ * path 里的祖先链每次同步都会按飞书部门树重建，因此不会包含已失效部门
+ */
 export async function loadAccessSubject(userId: number): Promise<TemplateAccessSubject> {
   const rows = await db
     .select({ departmentId: userDepartments.departmentId, path: departments.path })
     .from(userDepartments)
     .innerJoin(departments, eq(departments.id, userDepartments.departmentId))
-    .where(eq(userDepartments.userId, userId));
+    .where(and(eq(userDepartments.userId, userId), eq(departments.status, 'active')));
 
   const direct = rows.map((row) => row.departmentId);
   const ancestors = new Set<number>();
@@ -134,6 +138,8 @@ export interface GrantWithSubject {
   subjectId: number;
   includeSubDepartments: boolean;
   subjectName: string | null;
+  /** 授权对象当前是否仍有效：部门在飞书侧删除后会被同步标记为 inactive */
+  subjectStatus: 'active' | 'inactive' | 'missing';
 }
 
 /** 带名称的授权名单（管理端/共享设置弹窗展示用） */
@@ -149,23 +155,44 @@ export async function loadGrantsWithSubjects(templateId: number): Promise<GrantW
       ? db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, userIds))
       : Promise.resolve([] as { id: number; name: string | null }[]),
     departmentIds.length > 0
-      ? db.select({ id: departments.id, name: departments.name }).from(departments).where(inArray(departments.id, departmentIds))
-      : Promise.resolve([] as { id: number; name: string }[]),
+      ? db
+          .select({ id: departments.id, name: departments.name, status: departments.status })
+          .from(departments)
+          .where(inArray(departments.id, departmentIds))
+      : Promise.resolve([] as { id: number; name: string; status: string }[]),
   ]);
 
   const userNameMap = new Map(userRows.map((row) => [row.id, row.name]));
-  const departmentNameMap = new Map(departmentRows.map((row) => [row.id, row.name]));
+  const departmentMap = new Map(departmentRows.map((row) => [row.id, row]));
 
-  return rows.map((row) => ({
-    id: row.id,
-    subjectType: row.subjectType,
-    subjectId: row.subjectId,
-    includeSubDepartments: row.includeSubDepartments !== false,
-    subjectName:
-      row.subjectType === 'user'
-        ? userNameMap.get(row.subjectId) ?? `用户#${row.subjectId}`
-        : departmentNameMap.get(row.subjectId) ?? `部门#${row.subjectId}`,
-  }));
+  return rows.map((row) => {
+    if (row.subjectType === 'user') {
+      const name = userNameMap.get(row.subjectId);
+      return {
+        id: row.id,
+        subjectType: row.subjectType,
+        subjectId: row.subjectId,
+        includeSubDepartments: row.includeSubDepartments !== false,
+        subjectName: name ?? `用户#${row.subjectId}`,
+        subjectStatus: name === undefined ? 'missing' : 'active',
+      };
+    }
+
+    const department = departmentMap.get(row.subjectId);
+    // 已失效的部门在名单里显式标注，避免看起来仍然有效
+    const status: GrantWithSubject['subjectStatus'] =
+      department === undefined ? 'missing' : department.status === 'active' ? 'active' : 'inactive';
+    const baseName = department?.name ?? `部门#${row.subjectId}`;
+
+    return {
+      id: row.id,
+      subjectType: row.subjectType,
+      subjectId: row.subjectId,
+      includeSubDepartments: row.includeSubDepartments !== false,
+      subjectName: status === 'active' ? baseName : `${baseName}（已失效）`,
+      subjectStatus: status,
+    };
+  });
 }
 
 /** 覆盖式保存授权名单（调用方需先校验权限） */

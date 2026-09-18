@@ -8,15 +8,21 @@
  * 且应用可见范围覆盖目标用户；否则会返回权限错误，被 FeishuContactPermissionError 标记。
  */
 
-import { eq } from 'drizzle-orm';
+import { asc, eq, inArray, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { departments, userDepartments, users } from '@/lib/db/schema';
 import { getSystemConfig } from '@/lib/system-config';
 
 const FEISHU_API_BASE = 'https://open.feishu.cn/open-apis';
 const OPEN_DEPARTMENT_ID_TYPE = 'open_department_id';
-/** 单次同步最多处理的用户数，避免触发通讯录接口限流 */
-const MAX_USERS_PER_SYNC = 200;
+/** 单次同步默认刷新的用户数；配合 offset 续传可覆盖全部用户 */
+const DEFAULT_USER_BATCH = 500;
+/** 单次同步的批大小上限，避免一次请求把通讯录接口与执行时长拖爆 */
+const MAX_USER_BATCH = 5000;
+/** 刷新用户部门的并发度（每个用户内部仍串行），避免触发接口限流 */
+const USER_FETCH_CONCURRENCY = 6;
+/** 响应里最多回传多少条失败明细（总数另外统计） */
+const MAX_SKIPPED_USERS_REPORTED = 50;
 
 interface FeishuResponse<T> {
   code: number;
@@ -32,6 +38,13 @@ export class FeishuContactPermissionError extends Error {
 }
 
 let tokenCache: { token: string; expireAt: number } | null = null;
+/** 同进程防重入标记，避免手工同步与定时任务同时跑 */
+let syncInFlight = false;
+
+/** 当前进程内是否有同步在执行（供后台展示与调度器判断） */
+export function isDepartmentSyncRunning(): boolean {
+  return syncInFlight;
+}
 
 async function getTenantAccessToken(): Promise<string> {
   const now = Date.now();
@@ -192,16 +205,129 @@ export async function fetchDepartmentTree(): Promise<FeishuDepartmentNode[]> {
 
 export interface DepartmentSyncResult {
   departmentCount: number;
+  /** 本次新标记为失效的部门数（飞书侧已删除或不在应用可见范围） */
+  deactivatedDepartmentCount: number;
+  /** 本次新标记为失效的部门（受 20 条上限保护，仅用于提示） */
+  deactivatedDepartments: Array<{ id: number; name: string }>;
   linkedUserCount: number;
+  /** 失败明细（最多 MAX_SKIPPED_USERS_REPORTED 条） */
   skippedUsers: Array<{ userId: number; name: string | null; reason: string }>;
+  /** 失败总数，可能大于 skippedUsers.length */
+  skippedUserCount: number;
+  /** 用户部门关系的刷新进度（按 users.id 分页，可带 offset 续传） */
+  userSync: {
+    batchSize: number;
+    offset: number;
+    processed: number;
+    total: number;
+    /** 下一次续传应传的 offset */
+    nextOffset: number;
+    remaining: number;
+    /** syncAllUsers 模式下是否因时间预算用尽而提前返回 */
+    budgetExhausted: boolean;
+  };
+}
+
+export interface DepartmentSyncOptions {
+  /** 本次刷新多少个用户的部门关系，默认 DEFAULT_USER_BATCH */
+  userBatchSize?: number;
+  /** 从第几个用户开始（按 users.id 升序），用于分批续传 */
+  userOffset?: number;
+  /** true 时在一次调用里循环分批直到覆盖全部用户（定时任务用） */
+  syncAllUsers?: boolean;
+  /** syncAllUsers 模式的时间预算（毫秒），0 表示不限；超时返回剩余进度供下次续传 */
+  timeBudgetMs?: number;
+}
+
+/** 同一进程内已有同步在执行（定时任务与手工同步撞车时据此拒绝） */
+export class DepartmentSyncBusyError extends Error {
+  constructor() {
+    super('已有部门同步任务正在执行，请稍后再试');
+    this.name = 'DepartmentSyncBusyError';
+  }
+}
+
+function resolveUserBatchSize(value?: number): number {
+  const fromEnv = Number(process.env.DEPARTMENT_SYNC_USER_BATCH || '');
+  const fallback = Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : DEFAULT_USER_BATCH;
+  const raw = typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
+  return Math.max(1, Math.min(Math.floor(raw), MAX_USER_BATCH));
+}
+
+/** 同步单个用户的部门归属所需的字段 */
+export interface FeishuSyncUser {
+  id: number;
+  feishuUserId: string;
+  feishuUnionId: string | null;
 }
 
 /**
- * 全量同步：部门树 + 每个用户的部门关系
- * 只处理 users 表中已有记录的用户（未登录过的用户不会出现在系统里）
+ * 刷新单个用户的 user_departments（覆盖式写入）
+ * 通讯录权限错误直接抛出；其余错误由调用方决定是跳过还是忽略
  */
-export async function syncDepartmentsFromFeishu(): Promise<DepartmentSyncResult> {
+async function refreshUserDepartmentsWithMap(
+  user: FeishuSyncUser,
+  feishuIdToLocalId: Map<string, number>,
+  syncedAt: Date
+): Promise<void> {
+  let feishuUserId = user.feishuUserId;
+
+  let departmentIds: string[] = [];
+  try {
+    departmentIds = await fetchUserDepartmentsByUserId(feishuUserId);
+  } catch (error) {
+    // 历史数据里 feishuUserId 可能存的是 union_id，用 union_id 反查真实 user_id 再重试
+    if (user.feishuUnionId && user.feishuUnionId !== feishuUserId) {
+      const resolved = await resolveUserIdByUnionId(user.feishuUnionId);
+      if (!resolved) throw error;
+      feishuUserId = resolved;
+      departmentIds = await fetchUserDepartmentsByUserId(resolved);
+      await db.update(users).set({ feishuUserId: resolved, updatedAt: new Date() }).where(eq(users.id, user.id));
+    } else {
+      throw error;
+    }
+  }
+
+  const localDepartmentIds = departmentIds
+    .map((feishuId) => feishuIdToLocalId.get(feishuId))
+    .filter((id): id is number => typeof id === 'number');
+
+  await db.delete(userDepartments).where(eq(userDepartments.userId, user.id));
+  if (localDepartmentIds.length > 0) {
+    await db.insert(userDepartments).values(
+      [...new Set(localDepartmentIds)].map((departmentId) => ({ userId: user.id, departmentId, syncedAt }))
+    );
+  }
+}
+
+/**
+ * 全量同步：部门树 + 用户的部门关系
+ * 只处理 users 表中已有记录的用户（未登录过的用户不会出现在系统里）
+ *
+ * 部门侧为全量覆盖：本次部门树里没有、本地却存在的部门会被标记为 inactive
+ * （飞书侧已删除或不在应用可见范围），重新出现在树里时自动恢复 active；
+ * 用户侧按 users.id 分批，返回进度，可用 offset 续传直到覆盖全部用户；
+ * syncAllUsers 则在一次调用里循环分批跑完（可配 timeBudgetMs 时间预算），供定时任务使用。
+ */
+export async function syncDepartmentsFromFeishu(
+  options: DepartmentSyncOptions = {}
+): Promise<DepartmentSyncResult> {
+  // 同一进程内串行执行；跨进程/多副本的并发由调用方（如 XXL-Job 的阻塞策略）兜底
+  if (syncInFlight) throw new DepartmentSyncBusyError();
+  syncInFlight = true;
+  try {
+    return await runDepartmentSync(options);
+  } finally {
+    syncInFlight = false;
+  }
+}
+
+async function runDepartmentSync(options: DepartmentSyncOptions): Promise<DepartmentSyncResult> {
   const now = new Date();
+  const batchSize = resolveUserBatchSize(options.userBatchSize);
+  const offset = Math.max(0, Math.floor(options.userOffset || 0));
+  const syncAllUsers = options.syncAllUsers === true;
+  const timeBudgetMs = Math.max(0, Math.floor(options.timeBudgetMs || 0));
   const tree = await fetchDepartmentTree();
 
   // 1. 先 upsert 部门（拿到本地 id）
@@ -243,6 +369,35 @@ export async function syncDepartmentsFromFeishu(): Promise<DepartmentSyncResult>
     }
   }
 
+  // 1b. 本次部门树里没有、本地却存在的部门标记为失效（飞书侧已删除或不在应用可见范围）
+  //     只在拿到非空部门树时执行，避免接口异常返回空数组时误伤全部数据；
+  //     失效部门会从授权选择器与访问判定中排除，重新出现在树里时上面一步会自动恢复 active
+  let deactivatedDepartmentCount = 0;
+  let deactivatedDepartments: DepartmentSyncResult['deactivatedDepartments'] = [];
+  if (tree.length > 0) {
+    const seenFeishuIds = new Set(tree.map((node) => node.feishuDepartmentId));
+    const localRows = await db
+      .select({
+        id: departments.id,
+        feishuDepartmentId: departments.feishuDepartmentId,
+        name: departments.name,
+        status: departments.status,
+      })
+      .from(departments);
+
+    const staleRows = localRows.filter(
+      (row) => !seenFeishuIds.has(row.feishuDepartmentId) && row.status !== 'inactive'
+    );
+    if (staleRows.length > 0) {
+      await db
+        .update(departments)
+        .set({ status: 'inactive', updatedAt: now })
+        .where(inArray(departments.id, staleRows.map((row) => row.id)));
+      deactivatedDepartmentCount = staleRows.length;
+      deactivatedDepartments = staleRows.slice(0, 20).map((row) => ({ id: row.id, name: row.name }));
+    }
+  }
+
   // 2. 计算祖先链 path（形如 ,1,4,9,，含自身），供「含下级部门」匹配
   const parentByFeishuId = new Map(tree.map((node) => [node.feishuDepartmentId, node.parentFeishuDepartmentId]));
   const pathCache = new Map<string, string>();
@@ -267,74 +422,100 @@ export async function syncDepartmentsFromFeishu(): Promise<DepartmentSyncResult>
   }
 
   // 3. 同步用户 -> 部门（按 user_id 查询）
-  const userRows = await db
-    .select({
-      id: users.id,
-      name: users.name,
-      feishuUserId: users.feishuUserId,
-      feishuUnionId: users.feishuUnionId,
-    })
-    .from(users)
-    .limit(MAX_USERS_PER_SYNC);
+  //    单批模式只刷一页，由调用方用 offset 续传；syncAllUsers 模式在这里循环到覆盖全部用户
+  const [totalRow] = await db.select({ count: sql<number>`COUNT(*)` }).from(users);
+  const totalUsers = Number(totalRow?.count || 0);
+  const deadline = timeBudgetMs > 0 ? Date.now() + timeBudgetMs : Number.POSITIVE_INFINITY;
 
   const skippedUsers: DepartmentSyncResult['skippedUsers'] = [];
+  let skippedUserCount = 0;
   let linkedUserCount = 0;
+  let permissionError: FeishuContactPermissionError | null = null;
 
-  for (const user of userRows) {
-    let feishuUserId = user.feishuUserId;
+  /** 处理一页用户，按固定并发度消费；命中权限错误就停下，交给调用方给出明确引导 */
+  const processBatch = async (batchOffset: number): Promise<number> => {
+    const userRows = await db
+      .select({
+        id: users.id,
+        name: users.name,
+        feishuUserId: users.feishuUserId,
+        feishuUnionId: users.feishuUnionId,
+      })
+      .from(users)
+      .orderBy(asc(users.id))
+      .limit(batchSize)
+      .offset(batchOffset);
 
-    try {
-      let departmentIds: string[] = [];
-      try {
-        departmentIds = await fetchUserDepartmentsByUserId(feishuUserId);
-      } catch (error) {
-        // 历史数据里 feishuUserId 可能存的是 union_id，用 union_id 反查真实 user_id 再重试
-        if (user.feishuUnionId && user.feishuUnionId !== feishuUserId) {
-          const resolved = await resolveUserIdByUnionId(user.feishuUnionId);
-          if (resolved) {
-            feishuUserId = resolved;
-            departmentIds = await fetchUserDepartmentsByUserId(resolved);
-            await db
-              .update(users)
-              .set({ feishuUserId: resolved, updatedAt: new Date() })
-              .where(eq(users.id, user.id));
-          } else {
-            throw error;
+    const queue = [...userRows];
+    const worker = async () => {
+      for (;;) {
+        if (permissionError) return;
+        const user = queue.shift();
+        if (!user) return;
+
+        try {
+          await refreshUserDepartmentsWithMap(
+            { id: user.id, feishuUserId: user.feishuUserId, feishuUnionId: user.feishuUnionId },
+            feishuIdToLocalId,
+            now
+          );
+          linkedUserCount += 1;
+        } catch (error) {
+          if (error instanceof FeishuContactPermissionError) {
+            permissionError = error;
+            return;
           }
-        } else {
-          throw error;
+          skippedUserCount += 1;
+          if (skippedUsers.length < MAX_SKIPPED_USERS_REPORTED) {
+            skippedUsers.push({
+              userId: user.id,
+              name: user.name,
+              reason: error instanceof Error ? error.message.slice(0, 120) : '未知错误',
+            });
+          }
         }
       }
+    };
 
-      const localDepartmentIds = departmentIds
-        .map((feishuId) => feishuIdToLocalId.get(feishuId))
-        .filter((id): id is number => typeof id === 'number');
+    await Promise.all(
+      Array.from({ length: Math.min(USER_FETCH_CONCURRENCY, queue.length) }, () => worker())
+    );
 
-      await db.delete(userDepartments).where(eq(userDepartments.userId, user.id));
-      if (localDepartmentIds.length > 0) {
-        await db.insert(userDepartments).values(
-          [...new Set(localDepartmentIds)].map((departmentId) => ({
-            userId: user.id,
-            departmentId,
-            syncedAt: now,
-          }))
-        );
-      }
-      linkedUserCount += 1;
-    } catch (error) {
-      if (error instanceof FeishuContactPermissionError) {
-        // 权限问题直接抛出，让后台给出明确引导
-        throw error;
-      }
-      skippedUsers.push({
-        userId: user.id,
-        name: user.name,
-        reason: error instanceof Error ? error.message.slice(0, 120) : '未知错误',
-      });
-    }
+    return userRows.length;
+  };
+
+  let cursor = offset;
+  for (;;) {
+    const processedInBatch = await processBatch(cursor);
+    cursor += processedInBatch;
+
+    if (permissionError) throw permissionError;
+    if (processedInBatch === 0) break; // 后面没有用户了
+    if (!syncAllUsers) break; // 单批模式：把剩余进度交给调用方续传
+    if (cursor >= totalUsers) break; // 已覆盖全部用户
+    if (Date.now() >= deadline) break; // 时间预算用尽，返回剩余进度
   }
 
-  return { departmentCount: tree.length, linkedUserCount, skippedUsers };
+  const nextOffset = cursor;
+  const remaining = Math.max(0, totalUsers - nextOffset);
+
+  return {
+    departmentCount: tree.length,
+    deactivatedDepartmentCount,
+    deactivatedDepartments,
+    linkedUserCount,
+    skippedUsers,
+    skippedUserCount,
+    userSync: {
+      batchSize,
+      offset,
+      processed: nextOffset - offset,
+      total: totalUsers,
+      nextOffset,
+      remaining,
+      budgetExhausted: remaining > 0 && Date.now() >= deadline,
+    },
+  };
 }
 
 /** 按需刷新单个用户的部门（登录时调用，不阻塞主流程，失败静默） */
@@ -346,33 +527,14 @@ export async function refreshUserDepartments(userId: number): Promise<boolean> {
       .where(eq(users.id, userId));
     if (!user) return false;
 
-    let departmentIds: string[] = [];
-    try {
-      departmentIds = await fetchUserDepartmentsByUserId(user.feishuUserId);
-    } catch {
-      if (!user.feishuUnionId) return false;
-      const resolved = await resolveUserIdByUnionId(user.feishuUnionId);
-      if (!resolved) return false;
-      await db.update(users).set({ feishuUserId: resolved, updatedAt: new Date() }).where(eq(users.id, user.id));
-      departmentIds = await fetchUserDepartmentsByUserId(resolved);
-    }
-
+    // 只映射仍有效的部门：已失效（飞书侧删除或不在应用可见范围）的部门不再写入用户归属
     const departmentRows = await db
       .select({ id: departments.id, feishuDepartmentId: departments.feishuDepartmentId })
-      .from(departments);
+      .from(departments)
+      .where(eq(departments.status, 'active'));
     const feishuIdToLocalId = new Map(departmentRows.map((row) => [row.feishuDepartmentId, row.id]));
 
-    const localIds = departmentIds
-      .map((feishuId) => feishuIdToLocalId.get(feishuId))
-      .filter((id): id is number => typeof id === 'number');
-
-    const now = new Date();
-    await db.delete(userDepartments).where(eq(userDepartments.userId, userId));
-    if (localIds.length > 0) {
-      await db
-        .insert(userDepartments)
-        .values([...new Set(localIds)].map((departmentId) => ({ userId, departmentId, syncedAt: now })));
-    }
+    await refreshUserDepartmentsWithMap(user, feishuIdToLocalId, new Date());
     return true;
   } catch (error) {
     console.warn('[FeishuContact] 刷新用户部门失败（忽略）:', error);

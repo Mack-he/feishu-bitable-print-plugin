@@ -194,6 +194,75 @@ npx drizzle-kit push
 - **前置条件**：需在飞书开放平台为服务端自建应用开通通讯录权限（用户信息读取 + 部门信息读取）并发布生效，且应用可见范围覆盖目标用户；未开通时后台会给出明确提示，**用户维度授权不受影响**，仅部门维度为空。
 - 用户登录时会按需刷新本人部门（失败静默，不影响登录）。
 
+飞书侧改了部门（改名、调整层级、增减人员）后，再点一次「同步通讯录」即可，行为如下：
+
+- **部门改名 / 换父部门 / 人数变化**：按 `feishu_department_id` 做 upsert 更新，本地 `departments.id` 不变，因此已配置的授权不会丢；界面上的部门名与「含下级部门」的覆盖范围（`path`）都会跟着更新。
+- **部门被删除或移出应用可见范围**：本次部门树里没有、本地却存在的部门会被标记为 `status = inactive`，从授权选择器中消失、不再参与访问判定（授权记录保留，重新出现在树里会自动恢复 `active`）。后台会提示失效数量，确认不再需要的可在部门列表里删除，删除时一并清理该部门的授权记录。
+- **用户部门归属**：按 `users.id` 升序分批刷新，默认一次 500 人（可用环境变量 `DEPARTMENT_SYNC_USER_BATCH` 调整，单次上限 5000）；剩余人数会在后台提示，点「继续同步剩余 N 人」从上次的 `userOffset` 续传，直到覆盖全部用户。
+- 同步接口可带 body 参数调用：`POST /api/admin/departments/sync`，`{ "userBatchSize": 500, "userOffset": 0 }`。
+
+### 部门定时同步
+
+两种方式，**选一种即可**。
+
+#### 方式一：应用内置调度（自建 / Docker 部署推荐）
+
+在 `.env` 里打开开关，重启后生效（默认每天 03:00、15:00 各一次，服务器本地时间）：
+
+```bash
+DEPARTMENT_SYNC_SCHEDULE_ENABLED=true
+# 可选，自定义时间点，逗号分隔的 HH:mm
+# DEPARTMENT_SYNC_SCHEDULE=03:00,15:00
+```
+
+启动日志会打印 `[DepartmentScheduler] 内置定时同步已启用：每天 03:00、15:00`，之后的行为：
+
+- 每分钟检查一次是否到点，到点执行「部门树 + 用户部门归属」的全量同步。
+- **断点续传**：同步按 `users.id` 分批，进度写在 `system_configs` 的 `DEPARTMENT_SYNC_USER_CURSOR`；单次时间预算 4 分钟，跑不完下次接着跑，不会漏人。
+- **补跑**：进程停机跨过了时间点（或首次启用时当天已过时间点），启动后补跑一次，而不是把错过的几次都补；同一天同一个时间点只跑一次。
+- **结果可见**：记录在 `system_configs` 的 `DEPARTMENT_SYNC_LAST_RUN`，后台「部门管理」页会显示「定时同步：每天 … · 上次自动同步 时间 成功/失败：摘要」。
+- 与手工同步、外部调度并发时后到的会被跳过（接口返回 409、日志记录跳过）。
+- **限制**：定时器跑在 Node 进程里，只适用于常驻部署（`next start` / Docker）。**Vercel 等 Serverless 环境请用方式二**；多副本部署时每个副本都会各自到点触发（同步本身幂等，但建议只让一个副本开启该开关）。
+
+时间点与「补跑 / 不重复跑」的判定逻辑是纯函数，单独有回归脚本（改这块前后都可以跑一下）：
+
+```bash
+node --experimental-strip-types scripts/test-department-schedule.mts
+```
+
+#### 方式二：外部调度器触发（Serverless 环境，或已统一用某个调度平台）
+
+应用提供一个受密钥保护的 HTTP 入口，供任何调度器调用：
+
+```bash
+curl -sSL --max-time 300 -w '\n%{http_code}\n' \
+  -H "X-Cron-Secret: $DEPARTMENT_SYNC_CRON_SECRET" \
+  "http://<应用地址>/api/cron/departments/sync/"
+```
+
+也可以直接用仓库里的脚本，它们已经处理好尾斜杠跳转、状态码判断和错误输出，退出码可直接被调度器识别为任务成败：
+
+```bash
+# Linux / macOS / Git Bash
+APP_BASE_URL=http://127.0.0.1:5000 DEPARTMENT_SYNC_CRON_SECRET=xxx \
+  bash scripts/cron-department-sync.sh
+
+# Windows（PowerShell）——脚本刻意保持纯 ASCII，见下
+$env:APP_BASE_URL = "http://127.0.0.1:5000"; $env:DEPARTMENT_SYNC_CRON_SECRET = "xxx"
+powershell -ExecutionPolicy Bypass -File .\scripts\cron-department-sync.ps1
+```
+
+> PowerShell 版刻意只用英文提示：Windows PowerShell 5.1 按系统 ANSI 代码页（中文 Windows 是 GBK）读取 `.ps1`，**非 ASCII 字符会导致语法错误**；GLUE(PowerShell) 把脚本落到临时文件执行时同样如此。接口返回的中文消息不受影响（已带 `charset=utf-8`）。
+
+⚠️ 两个坑都会让定时任务「看起来成功、其实没同步」，务必注意：
+
+- 应用开了 `trailingSlash: true`，`/api/...` **不带尾斜杠会先返回 308**。curl 要加 `-L`；不能跟随跳转的客户端（如 XXL-Job 内置 `httpJobHandler` 使用的 Java HttpURLConnection，对 308 的支持不可靠）必须直接写带尾斜杠的地址。
+- `curl -sS` 在 HTTP 4xx/5xx 时**退出码仍然是 0**，会被 XXL-Job 记成「成功」。必须自己判状态码，或加 `-f` 让它非 200 就返回非 0。
+
+- **密钥**：先配置环境变量 `DEPARTMENT_SYNC_CRON_SECRET`（生成示例：`openssl rand -hex 24`），**未配置时接口直接返回 503（默认关闭）**，不会裸奔。接口读取顺序是 `system_configs` 表 → 环境变量，所以也可以直接往表里插一条同名记录。调用时用 `X-Cron-Secret` 头，或 `?secret=xxx`（便于只能配 URL 的调度器）。
+
+完整的平台接法（XXL-Job 的四种接法、crontab、systemd、K8s、Vercel）和参数、续传、防重入等细节，见 [docs/external-scheduler.md](docs/external-scheduler.md)。内置调度与外部触发共用同一个续传位置（`DEPARTMENT_SYNC_USER_CURSOR`），两种方式随时可以切换。
+
 ### 建表（新环境必做）
 
 ```bash

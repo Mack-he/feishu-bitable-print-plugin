@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
-import { departments, userDepartments } from '@/lib/db/schema';
+import { departments, templateGrants, userDepartments } from '@/lib/db/schema';
 import { extractTokenFromHeader, verifyAdminToken } from '@/lib/auth/jwt';
+import { getDepartmentScheduleStatus, type DepartmentScheduleStatus } from '@/lib/department-scheduler';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +49,14 @@ export async function GET(request: Request) {
       return !latest || row.lastSyncedAt > latest ? row.lastSyncedAt : latest;
     }, null);
 
+    // 内置定时同步的状态，读失败不影响部门列表本身
+    let schedule: DepartmentScheduleStatus | null = null;
+    try {
+      schedule = await getDepartmentScheduleStatus();
+    } catch (scheduleError) {
+      console.warn('[Admin Departments API] 读取定时同步状态失败:', scheduleError);
+    }
+
     return NextResponse.json({
       success: true,
       data: rows,
@@ -55,6 +64,7 @@ export async function GET(request: Request) {
         departmentCount: rows.length,
         linkedUserCount: Number(linkedUsers?.count || 0),
         lastSyncedAt: lastSync,
+        schedule,
       },
     });
   } catch (error) {
@@ -69,6 +79,7 @@ export async function GET(request: Request) {
 /**
  * DELETE /api/admin/departments?id=xx
  * 删除本地部门记录（不影响飞书；重新同步会再出现）
+ * 同时清理该部门的用户关联与授权名单，避免留下指向空部门的僵尸授权
  */
 export async function DELETE(request: Request) {
   try {
@@ -87,10 +98,13 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ success: false, error: '参数不合法' }, { status: 400 });
     }
 
+    await db
+      .delete(templateGrants)
+      .where(and(eq(templateGrants.subjectType, 'department'), eq(templateGrants.subjectId, id)));
     await db.delete(userDepartments).where(eq(userDepartments.departmentId, id));
     await db.delete(departments).where(eq(departments.id, id));
 
-    return NextResponse.json({ success: true, message: '已删除' });
+    return NextResponse.json({ success: true, message: '已删除（含该部门的授权记录）' });
   } catch (error) {
     console.error('[Admin Departments API] 删除部门错误:', error);
     return NextResponse.json(

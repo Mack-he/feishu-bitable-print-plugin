@@ -29,9 +29,11 @@ export async function GET(request: Request) {
       .select()
       .from(pluginLicenses)
       .where(
-        inArray(pluginLicenses.status, ['active', 'unused'])
+        and(
+          inArray(pluginLicenses.status, ['active', 'unused']),
+          eq(pluginLicenses.boundUserId, userIdStr)
+        )
       )
-      .where(eq(pluginLicenses.boundUserId, userIdStr))
       .orderBy(desc(pluginLicenses.validUntil))
       .limit(1);
     
