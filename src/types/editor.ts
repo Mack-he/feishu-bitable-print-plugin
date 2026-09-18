@@ -349,11 +349,23 @@ export type EditorComponent =
   | ArticleComponent;
 
 // 页面设置
+export type BuiltInPaperSize =
+  | 'A3' | 'A4' | 'A5' | 'A6'
+  | 'B4' | 'B5' | 'B6'
+  | '16K' | 'BIG16K' | '32K' | 'BIG32K'
+  | 'Letter' | 'Legal';
+
 export interface PageConfig {
-  size: 'A4' | 'A3' | 'Letter' | 'Legal' | 'Custom';
+  size: BuiltInPaperSize | 'Custom';
   orientation: 'portrait' | 'landscape';
+  /** 自定义纸张宽度（mm，纵向基准）；size === 'Custom' 时生效 */
   customWidth?: number;
+  /** 自定义纸张高度（mm，纵向基准）；size === 'Custom' 时生效 */
   customHeight?: number;
+  /** 关联的自定义纸张预设 id；预设被删除时保留尺寸快照，模板仍可正常打印 */
+  paperPresetId?: number;
+  /** 纸张名称快照，用于展示（预设改名/删除不影响已保存模板） */
+  paperName?: string;
   margins: {
     top: number;
     bottom: number;

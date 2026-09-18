@@ -1246,8 +1246,8 @@ const renderComponent = (component: any, data: Record<string, any>, fieldTypeMap
     />
   ) : undefined;
 
-  // 兼容处理：编辑器中使用 textStyle，模板预览中可能使用 style
-  const actualStyle = Object.keys(textStyle).length > 0 ? textStyle : style;
+  // 合并 style 和 textStyle，textStyle 优先（修复：原来二选一导致 textAlign 等布局样式丢失）
+  const actualStyle = { ...style, ...textStyle };
 
   // 使用统一的宽度计算
   const widthStyle = getComponentWidthStyle(component.layout?.width || '100%');

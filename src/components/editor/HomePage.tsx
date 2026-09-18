@@ -30,6 +30,7 @@ import { PresetTemplate } from '@/types/editor';
 import { usePrintSDK } from '@/hooks/usePrintSDK';
 import { FeishuEnvStatus } from '@/lib/feishu-env';
 import { TemplateSidebar } from './TemplateSidebar';
+import { TemplateThumbnail } from './TemplateThumbnail';
 import { AIGenerateTemplateDialog } from './AIGenerateTemplateDialog';
 import { UserTemplate } from '@/store/templateStore';
 
@@ -106,9 +107,17 @@ export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, 
     debugInfo 
   } = usePrintSDK();
 
+  // 分类 Tab 的 value 是分类 id，模板上的 category 存的是分类名称，需要先映射再比较
+  const activeCategoryName = templateCategories.find((cat) => cat.id === selectedCategory)?.name;
+
+  // 只展示确实存在模板的分类，避免点击后是空列表
+  const categoriesWithTemplates = templateCategories.filter(
+    (cat) => cat.id === 'all' || presetTemplates.some((template) => template.category === cat.name)
+  );
+
   // 过滤模板
   const filteredTemplates = presetTemplates.filter((template) => {
-    const matchesCategory = selectedCategory === 'all' || template.category === selectedCategory;
+    const matchesCategory = selectedCategory === 'all' || template.category === activeCategoryName;
     const matchesSearch = template.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       template.description.toLowerCase().includes(searchQuery.toLowerCase());
     return matchesCategory && matchesSearch;
@@ -141,7 +150,7 @@ export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, 
         <header className="border-b bg-background/95 backdrop-blur flex-shrink-0">
           <div className="flex items-center justify-between px-6 py-4">
             <div className="flex items-center gap-3">
-              <h1 className="text-lg font-semibold">欢迎使用排版打印</h1>
+              <h1 className="text-lg font-semibold">欢迎使用多维表格自定义打印</h1>
             </div>
             <div className="flex items-center gap-3">
               {/* 环境状态 */}
@@ -288,7 +297,7 @@ export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, 
               <h3 className="text-lg font-semibold">从模版开始</h3>
             </div>
             <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">
-              还没有使用过排版打印？强烈建议从模版开始
+              还没有使用过多维表格自定义打印？强烈建议从模版开始
             </Badge>
           </div>
 
@@ -303,15 +312,17 @@ export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, 
                 className="pl-10"
               />
             </div>
-            <Tabs value={selectedCategory} onValueChange={setSelectedCategory}>
-              <TabsList className="h-9">
-                {templateCategories.slice(0, 8).map((cat) => (
-                  <TabsTrigger key={cat.id} value={cat.id} className="text-xs px-3">
-                    {cat.name}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
+            <div className="overflow-x-auto">
+              <Tabs value={selectedCategory} onValueChange={setSelectedCategory}>
+                <TabsList className="h-9">
+                  {categoriesWithTemplates.map((cat) => (
+                    <TabsTrigger key={cat.id} value={cat.id} className="text-xs px-3">
+                      {cat.name}
+                    </TabsTrigger>
+                  ))}
+                </TabsList>
+              </Tabs>
+            </div>
           </div>
 
           {/* 模板网格 */}
@@ -323,9 +334,7 @@ export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, 
                 onClick={() => onSelectTemplate(template)}
               >
                 <div className="aspect-[3/4] bg-gradient-to-br from-slate-100 to-slate-200 dark:from-slate-800 dark:to-slate-900 relative">
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <FileText className="w-12 h-12 text-slate-300 dark:text-slate-600" />
-                  </div>
+                  <TemplateThumbnail src={template.thumbnail} alt={template.name} />
                   <Badge className="absolute bottom-2 right-2 text-xs" variant="secondary">
                     {template.format}
                   </Badge>

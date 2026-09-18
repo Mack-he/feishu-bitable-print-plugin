@@ -284,11 +284,10 @@ export function TemplateSidebar({ onSelectTemplate, onCreateNew, onTemplateCreat
       <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full">
         {/* 顶部标题栏 */}
         <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-              <FileText className="w-4 h-4 text-white" />
-            </div>
-            <h2 className="text-lg font-semibold text-gray-900">排版打印</h2>
+          <div className="mb-4">
+            <img src="/logo.png" alt="双鲸药业" className="h-8 w-auto mb-1.5" />
+            <h2 className="text-sm font-semibold text-gray-900">多维表格自定义打印</h2>
+            <p className="text-xs text-gray-500 mt-0.5">飞书多维表格打印插件</p>
           </div>
 
           {/* 创建模板按钮 */}

@@ -4,8 +4,8 @@ import EventSafetyLayer from '@/components/EventSafetyLayer';
 
 export const metadata: Metadata = {
   title: {
-    default: '新应用 | mack_he',
-    template: '%s | mack_he',
+    default: '多维表格自定义打印',
+    template: '%s | 多维表格自定义打印',
   },
   description:
     'mack_he是一款一站式云端 Vibe Coding 开发平台。通过对话轻松构建智能体、工作流和网站，实现从创意到上线的无缝衔接。',

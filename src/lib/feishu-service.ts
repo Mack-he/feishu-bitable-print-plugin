@@ -18,6 +18,7 @@
  */
 
 import type { Field } from '@/types/editor';
+import { getEnvStatus } from './feishu-env';
 
 // 字段类型映射
 const FIELD_TYPE_MAP: Record<number, string> = {
@@ -130,23 +131,26 @@ export function detectEnvironment(): Environment {
     return currentEnv;
   }
   
-  // 检查是否在 iframe 中（飞书侧边栏环境）
-  const inIframe = typeof window !== 'undefined' && window.self !== window.top;
+  // 🔥 以 SDK 的真实初始化状态为准：feishu-env 初始化成功即为飞书侧边栏环境
+  // 不再依赖 UA 判断——多维表格网页版、各端 webview 的 UA 都不保证带 feishu/lark 字样，
+  // 之前只认 UA 会导致字段读取（走本服务层）返回空数组，而记录（直连 SDK）却正常
+  if (getEnvStatus() === 'ready') {
+    currentEnv = 'sdk';
+    console.log('[FeishuService] SDK 已就绪，判定为 sdk 环境');
+    return 'sdk';
+  }
   
+  // 兜底：SDK 尚未初始化完成时，用 iframe + UA 做同步判断
+  const inIframe = typeof window !== 'undefined' && window.self !== window.top;
   if (inIframe) {
-    // 尝试检测飞书环境
     const isFeishuEnv = typeof navigator !== 'undefined' && /lark|feishu/i.test(navigator.userAgent);
     if (isFeishuEnv) {
       currentEnv = 'sdk';
       return 'sdk';
     }
-    
-    // 🔥 即使 userAgent 不匹配，如果在 iframe 中，也尝试使用 SDK
-    // 因为可能已经通过 initEnvironment() 初始化过了
-    console.log('[FeishuService] 在 iframe 中但 userAgent 未匹配，返回当前环境:', currentEnv);
   }
   
-  // 检查是否有配置的 appToken 和 tableId
+  // 独立访问模式：检查是否有配置的 appToken 和 tableId
   if (appToken && tableId) {
     currentEnv = 'api';
     return 'api';

@@ -11,6 +11,7 @@ import { HomePage } from '@/components/editor/HomePage';
 import { EditorPage } from '@/components/editor/EditorPage';
 import TemplatePreview from '@/components/editor/TemplatePreview';
 import { PresetTemplate } from '@/types/editor';
+import { getPresetTemplateData } from '@/data/preset-templates';
 import { Loader2 } from 'lucide-react';
 
 type AppView = 'home' | 'editor' | 'preview';
@@ -119,9 +120,25 @@ export default function PrintPluginApp() {
   };
 
   // 处理选择预设模板
-  const handleSelectTemplate = (template: PresetTemplate) => {
-    // TODO: 加载模板配置
-    setView('editor');
+  const handleSelectTemplate = async (template: PresetTemplate) => {
+    try {
+      // 从预置模板数据生成器获取完整排版内容（按需动态导入）
+      const templateData = await getPresetTemplateData(template.id);
+      // 创建模板并保存到数据库
+      const newTemplate = await saveTemplate({
+        name: template.name,
+        description: template.description,
+        thumbnail: template.thumbnail,
+        data: templateData,
+        isPublic: false,
+      });
+      setCurrentTemplate(newTemplate);
+      setTemplateName(newTemplate.name);
+      setView('editor');
+    } catch (error) {
+      console.error('[PrintPluginApp] 使用预置模板失败:', error);
+      alert('创建模板失败，请重试');
+    }
   };
 
   // 处理选择用户模板（进入预览）

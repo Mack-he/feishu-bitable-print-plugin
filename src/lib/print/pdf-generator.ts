@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
+// 同 PrintPreviewDialog：必须用 pro 版，原版 html2canvas 不支持 Tailwind v4 的 oklch() 颜色
+import html2canvas from 'html2canvas-pro';
 import QRCode from 'qrcode';
 import JsBarcode from 'jsbarcode';
 import { PrintTemplate, PrintSettings, BarcodeOptions, QRCodeOptions } from '@/types/print';

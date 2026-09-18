@@ -30,7 +30,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <Card className="w-full max-w-md mx-4">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl">打印插件</CardTitle>
+          <CardTitle className="text-2xl">多维表格自定义打印</CardTitle>
           <CardDescription>请使用飞书账号登录</CardDescription>
         </CardHeader>
         <CardContent>

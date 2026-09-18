@@ -32,7 +32,9 @@ import {
   Layout,
   RefreshCw,
 } from 'lucide-react';
-import html2canvas from 'html2canvas';
+// html2canvas 1.x 无法解析 Tailwind v4 输出的 oklch() 颜色（会抛
+// "Attempting to parse an unsupported color function oklch"），改用支持它的 pro 版本
+import html2canvas from 'html2canvas-pro';
 import jsPDF from 'jspdf';
 import { VariableTextRenderer } from '@/components/VariableTextRenderer';
 import { UnifiedComponentRenderer, RenderMode } from '@/components/editor/canvas/UnifiedComponentRenderer';
@@ -353,24 +355,10 @@ export function PrintPreviewDialog({ open, onOpenChange }: PrintPreviewDialogPro
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col p-0">
+      <DialogContent className="sm:max-w-6xl max-h-[90vh] overflow-hidden flex flex-col p-0">
         {/* 头部工具栏 */}
         <DialogHeader className="border-b px-6 py-4">
-          <div className="flex items-center justify-between">
-            <DialogTitle>打印预览</DialogTitle>
-            
-            {/* 操作按钮 */}
-            <div className="flex items-center gap-4">
-              <Button
-                size="sm"
-                onClick={handleExportPDF}
-                disabled={isExporting}
-              >
-                <Download className="w-4 h-4 mr-2" />
-                {isExporting ? '导出中...' : '导出 PDF'}
-              </Button>
-            </div>
-          </div>
+          <DialogTitle>打印预览</DialogTitle>
         </DialogHeader>
 
         {/* 主体内容 */}
@@ -540,10 +528,20 @@ export function PrintPreviewDialog({ open, onOpenChange }: PrintPreviewDialogPro
                 </TabsList>
               </Tabs>
               
-              {/* 模式指示器 */}
-              <Badge variant={dataSourceMode === 'template' ? 'secondary' : 'default'} className="text-xs">
-                {dataSourceMode === 'template' ? '模板预览' : '数据预览'}
-              </Badge>
+              {/* 导出 + 模式指示器 */}
+              <div className="flex items-center gap-3">
+                <Button
+                  size="sm"
+                  onClick={handleExportPDF}
+                  disabled={isExporting}
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  {isExporting ? '导出中...' : '导出 PDF'}
+                </Button>
+                <Badge variant={dataSourceMode === 'template' ? 'secondary' : 'default'} className="text-xs">
+                  {dataSourceMode === 'template' ? '模板预览' : '数据预览'}
+                </Badge>
+              </div>
             </div>
 
             {/* 缩放控制栏 - 跟模板编辑一样，位于画布上方 */}
