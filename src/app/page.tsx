@@ -148,6 +148,19 @@ export default function PrintPluginApp() {
     }
   };
 
+  // 处理 AI 生成的模板：保存为我的模板并直接进入编辑器
+  const handleUseGeneratedTemplate = async (payload: { name: string; description: string; data: unknown }) => {
+    const newTemplate = await saveTemplate({
+      name: payload.name || 'AI生成模板',
+      description: payload.description || '',
+      data: payload.data,
+      isPublic: false,
+    });
+    setCurrentTemplate(newTemplate);
+    setTemplateName(newTemplate.name);
+    setView('editor');
+  };
+
   // 处理选择用户模板（进入预览）
   const handleSelectUserTemplate = () => {
     setView('preview');
@@ -222,6 +235,7 @@ export default function PrintPluginApp() {
           onSelectTemplate={handleSelectTemplate}
           onSelectUserTemplate={handleSelectUserTemplate}
           onTemplateCreated={handleTemplateCreated}
+          onUseGeneratedTemplate={handleUseGeneratedTemplate}
           onLogout={handleLogout}
           onDeleteAccount={handleDeleteAccount}
         />

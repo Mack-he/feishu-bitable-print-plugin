@@ -39,6 +39,8 @@ interface HomePageProps {
   onSelectTemplate: (template: PresetTemplate) => void;
   onSelectUserTemplate?: (template: UserTemplate) => void;
   onTemplateCreated?: (template: UserTemplate) => void;
+  /** AI 生成的模板：保存为我的模板并进入编辑器 */
+  onUseGeneratedTemplate?: (payload: { name: string; description: string; data: unknown }) => Promise<void> | void;
   onLogout?: () => void;
   onDeleteAccount?: () => Promise<void>;
 }
@@ -89,7 +91,7 @@ function EnvStatusBadge({ status, isFeishuEnvironment }: { status: FeishuEnvStat
   }
 }
 
-export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, onTemplateCreated, onLogout, onDeleteAccount }: HomePageProps) {
+export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, onTemplateCreated, onUseGeneratedTemplate, onLogout, onDeleteAccount }: HomePageProps) {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showDebug, setShowDebug] = useState(false);
@@ -381,10 +383,9 @@ export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, 
       <AIGenerateTemplateDialog
         open={isAIGenerateDialogOpen}
         onOpenChange={setIsAIGenerateDialogOpen}
-        onTemplateGenerated={(template) => {
-          // TODO: Handle the generated template
-          console.log('Generated template:', template);
-        }}
+        fields={fields.map((field) => ({ name: field.name, type: field.type, fieldKind: field.fieldKind }))}
+        tableName={tableName}
+        onUseTemplate={onUseGeneratedTemplate}
       />
     </div>
   );

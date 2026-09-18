@@ -16,6 +16,7 @@ import {
   Database,
   Save,
   MessageSquare,
+  Sparkles,
 } from 'lucide-react';
 
 // 飞书配置接口
@@ -23,6 +24,14 @@ interface FeishuConfig {
   FEISHU_APP_ID: string;
   FEISHU_APP_SECRET: string;
   FEISHU_REDIRECT_URI: string;
+}
+
+// AI 大模型配置接口（OpenAI 兼容接口，DeepSeek/通义/智谱/Moonshot/Ollama 等均可）
+interface AiConfig {
+  AI_API_BASE_URL: string;
+  AI_API_KEY: string;
+  AI_MODEL: string;
+  AI_TIMEOUT_MS: string;
 }
 
 export default function SettingsPage() {
@@ -37,7 +46,15 @@ export default function SettingsPage() {
     FEISHU_REDIRECT_URI: '',
   });
 
-  // 加载飞书配置
+  // AI 大模型配置状态
+  const [aiConfig, setAiConfig] = useState<AiConfig>({
+    AI_API_BASE_URL: '',
+    AI_API_KEY: '',
+    AI_MODEL: '',
+    AI_TIMEOUT_MS: '',
+  });
+
+  // 加载系统配置
   useEffect(() => {
     loadFeishuConfig();
   }, []);
@@ -58,6 +75,13 @@ export default function SettingsPage() {
           FEISHU_APP_ID: configs.FEISHU_APP_ID || '',
           FEISHU_APP_SECRET: configs.FEISHU_APP_SECRET || '',
           FEISHU_REDIRECT_URI: configs.FEISHU_REDIRECT_URI || '',
+        });
+
+        setAiConfig({
+          AI_API_BASE_URL: configs.AI_API_BASE_URL || '',
+          AI_API_KEY: configs.AI_API_KEY || '',
+          AI_MODEL: configs.AI_MODEL || '',
+          AI_TIMEOUT_MS: configs.AI_TIMEOUT_MS || '',
         });
       }
     } catch (error) {
@@ -93,6 +117,43 @@ export default function SettingsPage() {
       }
     } catch (error) {
       console.error('保存飞书配置失败:', error);
+      alert('保存失败');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // 保存 AI 大模型配置
+  const handleSaveAiConfig = async () => {
+    try {
+      setIsSaving(true);
+
+      const configs = [
+        {
+          key: 'AI_API_BASE_URL',
+          value: aiConfig.AI_API_BASE_URL,
+          description: 'AI 大模型接口地址（OpenAI 兼容），如 https://api.deepseek.com/v1',
+        },
+        { key: 'AI_API_KEY', value: aiConfig.AI_API_KEY, description: 'AI 大模型 API Key', isEncrypted: true },
+        { key: 'AI_MODEL', value: aiConfig.AI_MODEL, description: '模型名称，如 deepseek-chat / qwen-plus' },
+        { key: 'AI_TIMEOUT_MS', value: aiConfig.AI_TIMEOUT_MS, description: '调用超时时间（毫秒），默认 60000' },
+      ];
+
+      const response = await fetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ configs }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        alert('AI 配置已保存！');
+      } else {
+        alert('保存失败: ' + result.error);
+      }
+    } catch (error) {
+      console.error('保存 AI 配置失败:', error);
       alert('保存失败');
     } finally {
       setIsSaving(false);
@@ -244,6 +305,80 @@ export default function SettingsPage() {
                 onClick={loadFeishuConfig}
                 disabled={isLoading}
               >
+                重置
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* AI 大模型配置 */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Sparkles className="h-5 w-5 text-muted-foreground" />
+              <div>
+                <CardTitle>AI 大模型</CardTitle>
+                <CardDescription>「AI 生成模板」使用的大模型接口（OpenAI 兼容协议）</CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="aiApiBaseUrl">接口地址 (Base URL)</Label>
+              <Input
+                id="aiApiBaseUrl"
+                placeholder="https://api.deepseek.com/v1"
+                value={aiConfig.AI_API_BASE_URL}
+                onChange={(e) => setAiConfig({ ...aiConfig, AI_API_BASE_URL: e.target.value })}
+                disabled={isLoading}
+              />
+              <p className="text-xs text-muted-foreground">
+                兼容 OpenAI 协议的服务均可：DeepSeek、通义千问（compatible-mode/v1）、智谱、Moonshot、Ollama 等。留空默认
+                https://api.deepseek.com/v1
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="aiApiKey">API Key</Label>
+              <Input
+                id="aiApiKey"
+                type="password"
+                placeholder="sk-..."
+                value={aiConfig.AI_API_KEY}
+                onChange={(e) => setAiConfig({ ...aiConfig, AI_API_KEY: e.target.value })}
+                disabled={isLoading}
+              />
+              <p className="text-xs text-muted-foreground">
+                留空时「AI 生成模板」会退化为内置规则生成（仍可用，但不是大模型效果）
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="aiModel">模型名称</Label>
+              <Input
+                id="aiModel"
+                placeholder="deepseek-chat"
+                value={aiConfig.AI_MODEL}
+                onChange={(e) => setAiConfig({ ...aiConfig, AI_MODEL: e.target.value })}
+                disabled={isLoading}
+              />
+              <p className="text-xs text-muted-foreground">
+                如 deepseek-chat、qwen-plus、glm-4-plus。图片识别需要多模态模型（如 qwen-vl-max、glm-4v）
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="aiTimeout">超时时间（毫秒）</Label>
+              <Input
+                id="aiTimeout"
+                placeholder="60000"
+                value={aiConfig.AI_TIMEOUT_MS}
+                onChange={(e) => setAiConfig({ ...aiConfig, AI_TIMEOUT_MS: e.target.value })}
+                disabled={isLoading}
+              />
+            </div>
+            <div className="pt-2 flex gap-2">
+              <Button onClick={handleSaveAiConfig} disabled={isSaving || isLoading} className="flex-1">
+                {isSaving ? '保存中...' : '保存 AI 配置'}
+              </Button>
+              <Button variant="outline" onClick={loadFeishuConfig} disabled={isLoading}>
                 重置
               </Button>
             </div>

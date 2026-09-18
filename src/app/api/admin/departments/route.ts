@@ -3,7 +3,7 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { departments, templateGrants, userDepartments } from '@/lib/db/schema';
 import { extractTokenFromHeader, verifyAdminToken } from '@/lib/auth/jwt';
-import { getDepartmentScheduleStatus, type DepartmentScheduleStatus } from '@/lib/department-scheduler';
+import { ensureDepartmentScheduler, getDepartmentScheduleStatus, type DepartmentScheduleStatus } from '@/lib/department-scheduler';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,6 +13,9 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: Request) {
   try {
+    // 管理后台的公共入口之一：首次请求时把内置调度器拉起来（幂等）
+    ensureDepartmentScheduler();
+
     const token = extractTokenFromHeader(request.headers.get('authorization'));
     if (!token) {
       return NextResponse.json({ success: false, error: '未授权' }, { status: 401 });

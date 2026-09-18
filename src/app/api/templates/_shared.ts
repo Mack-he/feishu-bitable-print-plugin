@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { verifyToken } from '@/lib/auth';
+import { ensureDepartmentScheduler } from '@/lib/department-scheduler';
 import type { TemplateAccess } from '@/lib/template-access';
 import type { TemplateRow, TemplateSource } from '@/lib/template-access-server';
 
@@ -10,6 +11,9 @@ import type { TemplateRow, TemplateSource } from '@/lib/template-access-server';
  */
 
 export function authenticate(request: Request): { userId: number } | { error: NextResponse } {
+  // 首次请求时把内置的部门定时同步调度器拉起来（幂等，见 department-scheduler.ts）
+  ensureDepartmentScheduler();
+
   const authHeader = request.headers.get('Authorization');
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return { error: NextResponse.json({ success: false, error: '未授权' }, { status: 401 }) };

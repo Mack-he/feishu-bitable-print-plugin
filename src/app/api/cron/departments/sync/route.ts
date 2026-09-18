@@ -5,6 +5,7 @@ import {
   FeishuContactPermissionError,
 } from '@/lib/feishu-contact';
 import {
+  ensureDepartmentScheduler,
   runScheduledSync,
   summarizeDepartmentSyncResult,
 } from '@/lib/department-scheduler';
@@ -34,6 +35,9 @@ const DEFAULT_TIME_BUDGET_MS = 240_000;
  */
 async function handle(request: Request) {
   try {
+    // 公共入口之一：确保内置调度器已启动（幂等）
+    ensureDepartmentScheduler();
+
     const { searchParams } = new URL(request.url);
     const expectedSecret = await getSystemConfig('DEPARTMENT_SYNC_CRON_SECRET');
     const providedSecret = request.headers.get('x-cron-secret') || searchParams.get('secret') || '';

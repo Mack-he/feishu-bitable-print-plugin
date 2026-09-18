@@ -1,13 +1,17 @@
 /**
  * 应用内置的部门定时同步（不依赖 xxl-job / crontab 等外部调度器）
  *
- * 由 src/instrumentation.ts 在服务启动时拉起：每分钟检查一次，到点则执行
- * 「部门树 + 用户部门归属」的全量同步；同步本身按 users.id 分批续传，进度记在
- * system_configs 里，因此即使一次跑不完（时间预算用尽）、或进程中途重启，也不会漏人。
+ * 由服务端的公共入口在首次请求时拉起（见 ensureDepartmentScheduler），
+ * 之后每分钟检查一次，到点则执行「部门树 + 用户部门归属」的全量同步；
+ * 同步本身按 users.id 分批续传，进度记在 system_configs 里，因此即使一次跑不完
+ * （时间预算用尽）、或进程中途重启，也不会漏人。
  *
  * 配置（system_configs 表优先，其次环境变量）：
  *   DEPARTMENT_SYNC_SCHEDULE_ENABLED  是否启用内置调度，默认 false（不配就是关）
- *   DEPARTMENT_SYNC_SCHEDULE          时间点，逗号分隔的 HH:mm（服务器本地时间），默认 03:00,15:00
+ *   DEPARTMENT_SYNC_SCHEDULE          时间点，逗号分隔的 HH:mm，默认 03:00,15:00
+ *   DEPARTMENT_SYNC_TIMEZONE          按哪个时区判定时间点（IANA 名，如 Asia/Shanghai）；
+ *                                     不配则用进程时区——注意 Next 的 Node 进程时区可能被
+ *                                     固定为 UTC，生产上建议显式配置
  *
  * 注意：定时器运行在 Node 进程内，只适用于自建/Docker（`next start`）这类常驻部署；
  * Vercel 等 Serverless 环境请改用外部调度器调 /api/cron/departments/sync。
@@ -18,7 +22,7 @@
 import { eq } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { systemConfigs } from '@/lib/db/schema';
-import { findDueSlot, parseSchedule } from '@/lib/department-schedule';
+import { findDueSlot, isValidTimeZone, parseSchedule } from '@/lib/department-schedule';
 import {
   DepartmentSyncBusyError,
   isDepartmentSyncRunning,
@@ -29,8 +33,6 @@ import { getSystemConfig } from '@/lib/system-config';
 
 /** 检查间隔：每分钟看一次是否到点 */
 const TICK_MS = 60_000;
-/** 启动后稍等再检查，避开启动瞬间的初始化 */
-const FIRST_TICK_DELAY_MS = 5_000;
 /** 内置调度默认时间点（一天两次） */
 export const DEFAULT_SCHEDULE = '03:00,15:00';
 /** 单次运行的时间预算，超时则把剩余进度留给下一次 */
@@ -38,6 +40,7 @@ const RUN_TIME_BUDGET_MS = 240_000;
 
 const SCHEDULE_KEY = 'DEPARTMENT_SYNC_SCHEDULE';
 const ENABLED_KEY = 'DEPARTMENT_SYNC_SCHEDULE_ENABLED';
+const TIMEZONE_KEY = 'DEPARTMENT_SYNC_TIMEZONE';
 const CURSOR_KEY = 'DEPARTMENT_SYNC_USER_CURSOR';
 const LAST_RUN_KEY = 'DEPARTMENT_SYNC_LAST_RUN';
 
@@ -55,6 +58,8 @@ export interface DepartmentScheduleStatus {
   times: string[];
   /** 未配置时使用的是默认时间点 */
   usingDefaultTimes: boolean;
+  /** 时间点按哪个时区判定（IANA 名，如 Asia/Shanghai） */
+  timeZone: string;
   lastRun: DepartmentLastRun | null;
   cursor: number;
   running: boolean;
@@ -121,24 +126,36 @@ async function writeLastRun(record: DepartmentLastRun): Promise<void> {
   await writeRecord(LAST_RUN_KEY, JSON.stringify(record), '部门同步：上次自动同步结果（内部键）');
 }
 
-/** 解析调度配置：默认关闭；时间点缺省为 DEFAULT_SCHEDULE */
+/**
+ * 解析调度配置：默认关闭；时间点缺省为 DEFAULT_SCHEDULE；
+ * 时区缺省取进程时区（注意 Next 的 Node 进程时区可能被固定为 UTC，
+ * 生产上建议显式配置 DEPARTMENT_SYNC_TIMEZONE，例如 Asia/Shanghai）
+ */
 async function resolveScheduleConfig(): Promise<{
   enabled: boolean;
   times: string[];
   usingDefaultTimes: boolean;
+  timeZone: string;
 }> {
-  const [rawTimes, rawEnabled] = await Promise.all([
+  const [rawTimes, rawEnabled, rawTimeZone] = await Promise.all([
     getSystemConfig(SCHEDULE_KEY),
     getSystemConfig(ENABLED_KEY),
+    getSystemConfig(TIMEZONE_KEY),
   ]);
 
   const parsed = parseSchedule(rawTimes);
   const enabledValue = (rawEnabled || '').trim().toLowerCase();
 
+  let timeZone = (rawTimeZone || '').trim();
+  if (!isValidTimeZone(timeZone)) {
+    timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  }
+
   return {
     enabled: ['true', '1', 'yes', 'on'].includes(enabledValue),
     times: parsed.length > 0 ? parsed : parseSchedule(DEFAULT_SCHEDULE),
     usingDefaultTimes: parsed.length === 0,
+    timeZone,
   };
 }
 
@@ -178,6 +195,7 @@ export async function getDepartmentScheduleStatus(): Promise<DepartmentScheduleS
     enabled: config.enabled,
     times: config.times,
     usingDefaultTimes: config.usingDefaultTimes,
+    timeZone: config.timeZone,
     lastRun,
     cursor,
     running: isDepartmentSyncRunning(),
@@ -215,12 +233,12 @@ async function executeSlot(slot: string, startedAt: Date): Promise<void> {
 }
 
 async function tick(): Promise<void> {
-  const { enabled, times } = await resolveScheduleConfig();
+  const { enabled, times, timeZone } = await resolveScheduleConfig();
   if (!enabled || times.length === 0) return;
 
   const lastRun = await readLastRun();
   const now = new Date();
-  const slot = findDueSlot(times, lastRun ? new Date(lastRun.at) : null, now);
+  const slot = findDueSlot(times, lastRun ? new Date(lastRun.at) : null, now, timeZone);
   if (!slot) return;
 
   await executeSlot(slot, now);
@@ -228,8 +246,13 @@ async function tick(): Promise<void> {
 
 let started = false;
 
-/** 启动内置调度器（幂等，由 instrumentation.ts 调用） */
-export function startDepartmentScheduler(): void {
+/**
+ * 确保内置调度器已启动（幂等）。由服务端的公共入口在首次请求时调用：
+ * 不使用 instrumentation.ts 启动——那个入口会被同时编译到 edge 等非 Node 目标，
+ * 而调度器依赖 mysql2（内部使用 node: 协议），会让 webpack 的 edge 编译直接失败。
+ * 语义：服务收到第一个请求后开始每分钟检查；停机/空闲跨过时间点时会补跑一次。
+ */
+export function ensureDepartmentScheduler(): void {
   if (started) return;
   started = true;
 
@@ -239,21 +262,22 @@ export function startDepartmentScheduler(): void {
     });
   };
 
-  setTimeout(safeTick, FIRST_TICK_DELAY_MS).unref();
+  // 首次调用立即检查一次（补跑语义），之后每分钟检查
+  safeTick();
   setInterval(safeTick, TICK_MS).unref();
 
   void (async () => {
     try {
-      const { enabled, times, usingDefaultTimes } = await resolveScheduleConfig();
+      const { enabled, times, usingDefaultTimes, timeZone } = await resolveScheduleConfig();
       if (enabled) {
         console.log(
-          `[DepartmentScheduler] 内置定时同步已启用：每天 ${times.join('、')}（服务器本地时间）` +
-            `${usingDefaultTimes ? '，时间点来自默认值' : ''}`
+          `[DepartmentScheduler] 内置定时同步已启用：每天 ${times.join('、')}（时区 ${timeZone}）` +
+            `${usingDefaultTimes ? '，时间点来自默认值' : ''}，服务收到首个请求后开始检查`
         );
       } else {
         console.log(
-          `[DepartmentScheduler] 内置定时同步未启用（设置 ${ENABLED_KEY}=true 启用，默认时间点 ${DEFAULT_SCHEDULE}）；` +
-            '也可以用外部调度器调用 /api/cron/departments/sync'
+          `[DepartmentScheduler] 内置定时同步未启用（设置 ${ENABLED_KEY}=true 启用，默认时间点 ${DEFAULT_SCHEDULE}，` +
+            `时区可用 ${TIMEZONE_KEY} 指定）；也可以用外部调度器调用 /api/cron/departments/sync`
         );
       }
     } catch (error) {

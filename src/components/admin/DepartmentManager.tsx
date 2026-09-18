@@ -30,6 +30,7 @@ interface ScheduleStatus {
   enabled: boolean;
   times: string[];
   usingDefaultTimes: boolean;
+  timeZone: string;
   lastRun: { at: string; slot: string; ok: boolean; message: string } | null;
   cursor: number;
   running: boolean;
@@ -184,8 +185,8 @@ export function DepartmentManager({ adminToken }: { adminToken: string }) {
           <p>
             定时同步：
             {meta.schedule.enabled
-              ? `每天 ${meta.schedule.times.join('、')}（内置调度，服务器本地时间${
-                  meta.schedule.usingDefaultTimes ? '，默认时间点' : ''
+              ? `每天 ${meta.schedule.times.join('、')}（时区 ${meta.schedule.timeZone}${
+                  meta.schedule.usingDefaultTimes ? '，时间点来自默认值' : ''
                 }）`
               : '未启用'}
             {meta.schedule.lastRun

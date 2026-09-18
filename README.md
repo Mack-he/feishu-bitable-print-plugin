@@ -33,6 +33,7 @@ pnpm deploy:vercel
 - **图片渲染支持**：支持图文混排，生成包含图片的丰富格式文档
 - **打印预览**：实时预览打印效果，支持直接打印和导出
 - **批量打印**：选择多条记录，一次性批量打印
+- **AI 生成模板**：用自然语言描述、选布局或传参考图，由大模型生成可打印模板（详见 [AI 生成模板](#-ai-生成模板)）
 
 ### 🎨 视觉设计
 - 现代化的 UI 设计，基于 shadcn/ui 组件库
@@ -207,24 +208,27 @@ npx drizzle-kit push
 
 #### 方式一：应用内置调度（自建 / Docker 部署推荐）
 
-在 `.env` 里打开开关，重启后生效（默认每天 03:00、15:00 各一次，服务器本地时间）：
+在 `.env` 里配置（默认每天 03:00、15:00 各一次）：
 
 ```bash
 DEPARTMENT_SYNC_SCHEDULE_ENABLED=true
 # 可选，自定义时间点，逗号分隔的 HH:mm
 # DEPARTMENT_SYNC_SCHEDULE=03:00,15:00
+# 可选但建议配置：时间点按哪个时区判定（IANA 名）。
+# Next 的 Node 进程时区可能被固定为 UTC，不配置会按 UTC 触发（即北京 11:00/23:00）
+DEPARTMENT_SYNC_TIMEZONE=Asia/Shanghai
 ```
 
-启动日志会打印 `[DepartmentScheduler] 内置定时同步已启用：每天 03:00、15:00`，之后的行为：
+重启后，服务**收到第一个请求时**调度器开始工作，日志打印 `[DepartmentScheduler] 内置定时同步已启用：每天 03:00、15:00（时区 Asia/Shanghai）`，之后的行为：
 
 - 每分钟检查一次是否到点，到点执行「部门树 + 用户部门归属」的全量同步。
 - **断点续传**：同步按 `users.id` 分批，进度写在 `system_configs` 的 `DEPARTMENT_SYNC_USER_CURSOR`；单次时间预算 4 分钟，跑不完下次接着跑，不会漏人。
-- **补跑**：进程停机跨过了时间点（或首次启用时当天已过时间点），启动后补跑一次，而不是把错过的几次都补；同一天同一个时间点只跑一次。
-- **结果可见**：记录在 `system_configs` 的 `DEPARTMENT_SYNC_LAST_RUN`，后台「部门管理」页会显示「定时同步：每天 … · 上次自动同步 时间 成功/失败：摘要」。
+- **补跑**：进程停机 / 空闲跨过了时间点（或首次启用时当天已过时间点），首个请求后会补跑一次，而不是把错过的几次都补；同一天同一个时间点只跑一次。
+- **结果可见**：记录在 `system_configs` 的 `DEPARTMENT_SYNC_LAST_RUN`，后台「部门管理」页会显示「定时同步：每天 …（时区 …） · 上次自动同步 时间 成功/失败：摘要」。
 - 与手工同步、外部调度并发时后到的会被跳过（接口返回 409、日志记录跳过）。
 - **限制**：定时器跑在 Node 进程里，只适用于常驻部署（`next start` / Docker）。**Vercel 等 Serverless 环境请用方式二**；多副本部署时每个副本都会各自到点触发（同步本身幂等，但建议只让一个副本开启该开关）。
 
-时间点与「补跑 / 不重复跑」的判定逻辑是纯函数，单独有回归脚本（改这块前后都可以跑一下）：
+时间点与「补跑 / 不重复跑」的判定逻辑是纯函数（按时区计算），单独有回归脚本（改这块前后都可以跑一下）：
 
 ```bash
 node --experimental-strip-types scripts/test-department-schedule.mts
@@ -276,6 +280,26 @@ npx drizzle-kit push
 ### 已知限制
 
 打印在客户端完成，服务端的可见性判定作用于「模板列表」与「单条读取」：权限被回收后，浏览器中已加载过的模板数据无法远程清除，新会话即不可见。
+
+## 🤖 AI 生成模板
+
+首页「AI生成模板」卡片支持三种生成方式：**自然语言**（描述需求）、**智能布局**（选布局样式 + 补充描述）、**图片识别**（上传参考图，需多模态模型）。生成结果可以直接「使用此模板」保存为我的模板并进入编辑器。
+
+### 工作方式
+
+1. 前端把当前数据表的字段列表、表格名和用户需求一起提交到 `POST /api/ai/generate-template`；
+2. 服务端用 OpenAI 兼容协议调用大模型（`/chat/completions`），提示词里固定了编辑器组件模型的结构与样式写法（`fontSize` 数字、`bold` 布尔、`align` 对齐、`[字段名]` 占位符）；
+3. 返回的 JSON 会经过校验与收敛（`src/lib/ai/template-spec.ts`）：非法组件丢弃、样式字段纠正、表格补齐列、变量名比对当前字段，只保留编辑器认识的组件（text / heading / paragraph / list / table / line / qrcode / barcode）；
+4. **未配置大模型或调用失败时**，自动退化为本地规则生成（`src/lib/ai/rule-generator.ts`），按关键词与字段拼出可用的登记表/合同/卡片模板，前端会给出黄色提示说明本次不是大模型生成。
+
+### 配置大模型
+
+两种方式，**数据库配置优先于环境变量**：
+
+- 后台：`/admins/settings` → **AI 大模型**（接口地址 / API Key / 模型名称 / 超时时间）；
+- 环境变量：`AI_API_BASE_URL`、`AI_API_KEY`、`AI_MODEL`、`AI_TIMEOUT_MS`（见 `.env.example`）。
+
+任何兼容 OpenAI 协议的服务都可以直接用：DeepSeek（默认 `https://api.deepseek.com/v1` + `deepseek-chat`）、通义千问（`https://dashscope.aliyuncs.com/compatible-mode/v1` + `qwen-plus`）、智谱、Moonshot、自建 Ollama/vLLM 等。图片识别需要模型支持图片输入（如 `qwen-vl-max`、`glm-4v`），否则会按补充描述生成。
 
 ## 📖 使用说明
 
