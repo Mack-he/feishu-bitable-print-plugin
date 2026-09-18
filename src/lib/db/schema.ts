@@ -19,7 +19,7 @@ export const users = mysqlTable('users', {
 export const userTableAuthorizations = mysqlTable('user_table_authorizations', {
   id: int('id').autoincrement().primaryKey(),
   userId: int('user_id').notNull().references(() => users.id),
-  tableId: text('table_id').notNull(),
+  tableId: varchar('table_id', { length: 190 }).notNull(),
   tableName: text('table_name'),
   // 授权码（加密存储）
   appToken: text('app_token').notNull(),

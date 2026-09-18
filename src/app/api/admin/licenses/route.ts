@@ -172,6 +172,15 @@ export async function POST(request: Request) {
       );
     }
 
+    // 校验前缀长度：前缀最多12位，至少留4位随机字符
+    const cleanPrefix = prefix.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+    if (cleanPrefix.length > 12) {
+      return NextResponse.json(
+        { error: '前缀最多12个字符（授权码总长16位，需保留至少4位随机字符）' },
+        { status: 400 }
+      );
+    }
+
     const durationDays = getDurationDays(type as LicenseType);
     const codes = generateLicenseCodes(count, type as LicenseType, prefix);
     

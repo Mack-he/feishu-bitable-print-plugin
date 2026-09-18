@@ -111,6 +111,13 @@ export default function PrintPluginApp() {
     }
   };
 
+  // 处理从侧边栏创建模板成功后进入编辑器
+  const handleTemplateCreated = (template: any) => {
+    setCurrentTemplate(template);
+    setTemplateName(template.name);
+    setView('editor');
+  };
+
   // 处理选择预设模板
   const handleSelectTemplate = (template: PresetTemplate) => {
     // TODO: 加载模板配置
@@ -187,6 +194,7 @@ export default function PrintPluginApp() {
           onCreateNew={handleCreateNew}
           onSelectTemplate={handleSelectTemplate}
           onSelectUserTemplate={handleSelectUserTemplate}
+          onTemplateCreated={handleTemplateCreated}
           onLogout={handleLogout}
           onDeleteAccount={handleDeleteAccount}
         />

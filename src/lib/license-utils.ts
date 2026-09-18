@@ -43,40 +43,40 @@ export function getDurationLabel(type: LicenseType): string {
 
 /**
  * 生成随机授权码
- * @param prefix 可选前缀
- * @param groupCount 分组数量（默认4组）
- * @param groupLength 每组长度（默认4位）
- * @returns 格式化后的授权码
+ * 总长度固定为16位：前缀占一部分，剩余用随机字符填充
+ * @param prefix 可选前缀（会占用16位中的一部分）
+ * @returns 格式化后的授权码 XXXX-XXXX-XXXX-XXXX
  */
 export function generateLicenseCode(
-  prefix: string = '',
-  groupCount: number = 4,
-  groupLength: number = 4
+  prefix: string = ''
 ): string {
   // 排除易混淆字符：0, O, 1, I, L
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-  let code = '';
+  const TOTAL_LENGTH = 16;
+  const cleanPrefix = prefix.replace(/[^A-Z0-9]/gi, '').toUpperCase();
+  const randomLength = Math.max(0, TOTAL_LENGTH - cleanPrefix.length);
   
-  for (let i = 0; i < groupCount * groupLength; i++) {
+  let code = '';
+  for (let i = 0; i < randomLength; i++) {
     code += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   
-  // 格式化为 XXXX-XXXX-XXXX-XXXX
+  const fullCode = cleanPrefix + code;
+  
+  // 格式化为每4位一组
   const groups: string[] = [];
-  for (let i = 0; i < groupCount; i++) {
-    groups.push(code.substring(i * groupLength, (i + 1) * groupLength));
+  for (let i = 0; i < fullCode.length; i += 4) {
+    groups.push(fullCode.substring(i, i + 4));
   }
   
-  const formatted = groups.join('-');
-  
-  return prefix ? `${prefix}-${formatted}` : formatted;
+  return groups.join('-');
 }
 
 /**
  * 批量生成授权码
  * @param count 生成数量
  * @param type 有效期类型
- * @param prefix 可选前缀
+ * @param prefix 可选前缀（占用16位中的一部分）
  * @returns 授权码数组
  */
 export function generateLicenseCodes(
@@ -93,9 +93,8 @@ export function generateLicenseCodes(
   while (codes.length < count && attempt < maxAttempts) {
     attempt++;
     
-    // 带序号的前缀
-    const actualPrefix = prefix ? `${prefix}${codes.length + 1}` : '';
-    const code = generateLicenseCode(actualPrefix);
+    // 直接使用用户输入的前缀，不再自动添加序号
+    const code = generateLicenseCode(prefix);
     
     // 检查是否重复（理论上概率极低）
     if (!usedCodes.has(code)) {

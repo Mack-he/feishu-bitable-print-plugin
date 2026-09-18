@@ -940,8 +940,8 @@ const replaceVariablesToHTML = (text: string, data: Record<string, any>, textSty
     }
     // lock
     
-    if (originalValue === undefined || originalValue === null) {
-      return match; // 保留原变量格式
+    if (originalValue === undefined || originalValue === null || originalValue === '') {
+      return ''; // 空值显示空白，不保留占位符
     }
     
     // 使用 formatFieldValueToHTML 格式化字段值，特别是流程字段的颜色样式
@@ -1527,14 +1527,14 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
   }>({
     isLocked: false,
     lastRequestTime: 0,
-    minInterval: 500, // 500ms 内不允许重复请求
+    minInterval: 150, // 150ms，保证实时响应同时防止过度请求
   });
   
   // 忽略列表：存储用户手动删除的记录 ID，避免被飞书事件恢复
   const [ignoredRecordIds, setIgnoredRecordIds] = useState<Set<string>>(new Set());
 
-  // 左侧区域展开状态（默认收起）
-  const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  // 左侧区域展开状态（默认展开）
+  const [sidebarExpanded, setSidebarExpanded] = useState(true);
 
   // 页面设置状态
   const [isPageSettingsOpen, setIsPageSettingsOpen] = useState(false);
@@ -2323,6 +2323,22 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
           return newRecords;
         });
         
+        // 点击行时替换为当前记录，确保预览实时显示最新选择的行（不积累）
+        const newSelectedRecords = processedRecords
+          .filter(r => r.id || r._sourceRecordId)
+          .map(record => ({
+            id: record.id || record._sourceRecordId,
+            data: record,
+            addedAt: Date.now(),
+          }));
+        setSelectedRecords(newSelectedRecords);
+        console.log('[TP] 替换选中列表为当前记录，数量:', newSelectedRecords.length);
+
+        // 【关键修复】同步更新 selectedDataStore，使预览页实时显示当前选中的记录
+        setSelectedDataRecords(processedRecords);
+        setCurrentIndex(0);
+        console.log('[TP] 已更新 selectedDataStore，记录数:', processedRecords.length);
+        
         // 【关键修复】同步到 editorStore 也使用函数式获取最新状态
         // 使用 setTimeout 确保在 setAvailableRecords 完成后再同步
         setTimeout(() => {
@@ -2366,7 +2382,7 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
       // 释放锁
       requestLockRef.current.isLocked = false;
     }
-  }, [isTableMatched, selectedTemplate, ignoredRecordIds, addEditorStoreRecords]);
+  }, [isTableMatched, selectedTemplate, ignoredRecordIds, addEditorStoreRecords, setSelectedDataRecords, setCurrentIndex]);
   
   // 获取当前表格信息
   const fetchCurrentTableInfo = useCallback(async () => {
@@ -2648,6 +2664,32 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
       }))
     });
   }, []);
+
+  // 自动选中第一个模板：模板加载完成后，如果没有选中的模板，默认选中第一个
+  useEffect(() => {
+    if (templates.length > 0 && !selectedTemplate) {
+      console.log('[TemplatePreview] 自动选中第一个模板:', templates[0].name);
+      handleSelectTemplate(templates[0]);
+    }
+  }, [templates, selectedTemplate, handleSelectTemplate]);
+
+  // 自动加载第一条记录：选择模板且表格匹配后，自动载入数据，避免打印按钮灰色不可点
+  const autoFetchedTemplateRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!selectedTemplate || !isTableMatched || !isFeishuEnvironment) return;
+    if (selectedRecords.length > 0) return;
+    const templateKey = String(selectedTemplate.id);
+    // 每个模板只自动加载一次，避免重复请求
+    if (autoFetchedTemplateRef.current === templateKey) return;
+    autoFetchedTemplateRef.current = templateKey;
+
+    console.log('[TP] 自动加载第一条记录，模板:', selectedTemplate.name);
+    // 延迟一帧，确保状态已更新
+    const timer = setTimeout(() => {
+      fetchSelectedRecordsFromEnv();
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [selectedTemplate, isTableMatched, isFeishuEnvironment, selectedRecords.length, fetchSelectedRecordsFromEnv]);
 
   // 处理编辑模板
   const handleEdit = useCallback(() => {
@@ -3096,33 +3138,22 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
     toast.success(`已打开批量打印窗口，共 ${selectedRecords.length} 条记录`);
   }, [selectedTemplate, selectedRecords, layoutMode]);
 
-  // 左侧面板 ref，用于检测点击外部
-  const sidebarRef = useRef<HTMLDivElement>(null);
-
-  // 点击外部区域收起面板
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
-        // 检查是否点击了模板选择按钮（避免冲突）
-        const target = event.target as HTMLElement;
-        const isTemplateButton = target.closest('[data-template-selector]');
-        if (!isTemplateButton && sidebarExpanded) {
-          setSidebarExpanded(false);
-        }
-      }
-    };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [sidebarExpanded]);
-
   return (
     <div className="print-wrapper h-screen flex gap-3 p-3 overflow-hidden">
+      {/* 侧边栏收起时：左侧边缘浮动展开按钮（仿飞书多维表格样式） */}
+      {!sidebarExpanded && (
+        <button
+          onClick={() => setSidebarExpanded(true)}
+          className="no-print fixed left-0 top-1/2 -translate-y-1/2 z-50 flex items-center justify-center w-6 h-16 bg-white border border-l-0 border-gray-200 rounded-r-lg shadow-sm hover:bg-gray-50 hover:border-gray-300 transition-all group"
+          title="显示侧边栏"
+        >
+          <ChevronRight className="h-4 w-4 text-gray-500 group-hover:text-gray-700" />
+        </button>
+      )}
+
       {/* 左侧：模板列表与数据匹配选择夹 - 条件渲染 */}
       {sidebarExpanded && (
-        <Card ref={sidebarRef} className="sidebar-left no-print w-64 flex-shrink-0 flex flex-col animate-in slide-in-from-left-2 duration-200">
+        <Card className="sidebar-left no-print w-64 flex-shrink-0 flex flex-col animate-in slide-in-from-left-2 duration-200">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-2">
@@ -3134,6 +3165,7 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
                 size="sm" 
                 className="h-8 w-8 p-0"
                 onClick={() => setSidebarExpanded(false)}
+                title="收起侧边栏"
               >
                 <ChevronLeft className="h-4 w-4" />
               </Button>
@@ -3415,17 +3447,6 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
 
               {/* 右侧：打印按钮 */}
               <div className="flex items-center gap-2">
-                {/* 模板选择按钮 */}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  data-template-selector
-                  onClick={() => setSidebarExpanded(!sidebarExpanded)}
-                  className={`font-medium ${sidebarExpanded ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-100'}`}
-                >
-                  {selectedTemplate ? selectedTemplate.name : '选择模板'}
-                  <ChevronRight className={`h-4 w-4 ml-1 transition-transform ${sidebarExpanded ? 'rotate-90' : ''}`} />
-                </Button>
                 <Button
                   variant="outline"
                   size="sm"

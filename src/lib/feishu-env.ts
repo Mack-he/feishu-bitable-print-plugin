@@ -243,75 +243,55 @@ function setupSelectionListener() {
   try {
     debugLog('======== 设置选中变化监听器 ========');
     
-    // 先探索所有可用事件
-    exploreAllEvents();
-    
-    // ⚠️ 重要说明：
-    // base.onSelectionChange 只在点击单元格/行时触发
-    // 不会在复选框勾选时触发（这是飞书 SDK 限制）
-    
-    if (typeof (bitable.base as any).onSelectionChange === 'function') {
-      selectionUnsubscribe = (bitable.base as any).onSelectionChange((event: SelectionChangeEvent) => {
-        console.log('🎯 base.onSelectionChange 事件触发!');
-        console.log('📋 事件数据:', {
-          tableId: event?.data?.tableId,
-          recordId: event?.data?.recordId,
-          fieldId: event?.data?.fieldId,
-        });
-        
-        // 🔥 同时触发轮询回调（统一处理）
-        const recordId = event?.data?.recordId;
-        const tableId = event?.data?.tableId;
-        
-        if (recordId && tableId) {
-          const pollingEvent = {
-            tableId: tableId,
-            recordIds: [recordId],
-            isSelectAll: false,
-          };
-          
-          // 通知轮询回调
-          onSelectionPollingCallbacks.forEach(cb => {
-            try {
-              cb(pollingEvent);
-            } catch (e) {
-              console.error('[FeishuEnv] 轮询回调执行失败:', e);
-            }
-          });
-        }
-        
-        // 通知所有注册的回调
-        onSelectionChangeCallbacks.forEach(cb => {
-          try {
-            cb(event);
-          } catch (e) {
-            console.error('[FeishuEnv] 选中变化回调执行失败:', e);
-          }
-        });
-      });
+    // 统一的事件处理函数
+    const handleSelectionEvent = (event: any) => {
+      // 兼容 IEventCbCtx<Selection> 和直接 Selection 两种格式
+      const data = event?.data || event;
+      const tableId = data?.tableId;
+      const recordId = data?.recordId;
+      const fieldId = data?.fieldId;
       
-      console.log('✅ base.onSelectionChange 监听器设置成功');
-    } else if (typeof (bitable as any).onSelectionChange === 'function') {
-      selectionUnsubscribe = (bitable as any).onSelectionChange((event: SelectionChangeEvent) => {
-        console.log('🎯 bitable.onSelectionChange 事件触发!');
-        console.log('📋 事件数据:', event);
-        
-        // 通知所有注册的回调
-        onSelectionChangeCallbacks.forEach(cb => {
-          try {
-            cb(event);
-          } catch (e) {
-            console.error('[FeishuEnv] 选中变化回调执行失败:', e);
-          }
-        });
-      });
+      console.log('🎯 onSelectionChange 事件触发!', { tableId, recordId, fieldId });
       
+      // 触发轮询回调
+      if (recordId && tableId) {
+        const pollingEvent = { tableId, recordIds: [recordId], isSelectAll: false };
+        onSelectionPollingCallbacks.forEach(cb => {
+          try { cb(pollingEvent); } catch (e) { console.error('[FeishuEnv] 轮询回调失败:', e); }
+        });
+      }
+      
+      // 通知所有注册的回调（保持原格式传递）
+      const wrappedEvent = event?.data ? event : { data };
+      onSelectionChangeCallbacks.forEach(cb => {
+        try { cb(wrappedEvent); } catch (e) { console.error('[FeishuEnv] 选中变化回调失败:', e); }
+      });
+    };
+
+    // 方式1：base.onSelectionChange（官方标准方法，SDK 类型定义中有）
+    if (typeof base.onSelectionChange === 'function') {
+      selectionUnsubscribe = base.onSelectionChange(handleSelectionEvent);
+      console.log('✅ base.onSelectionChange 监听器设置成功（官方标准方法）');
+    }
+    // 方式2：bitable.base.onSelectionChange
+    else if (typeof (bitable.base as any).onSelectionChange === 'function') {
+      selectionUnsubscribe = (bitable.base as any).onSelectionChange(handleSelectionEvent);
+      console.log('✅ bitable.base.onSelectionChange 监听器设置成功');
+    }
+    // 方式3：bitable.onSelectionChange
+    else if (typeof (bitable as any).onSelectionChange === 'function') {
+      selectionUnsubscribe = (bitable as any).onSelectionChange(handleSelectionEvent);
       console.log('✅ bitable.onSelectionChange 监听器设置成功');
-    } else {
-      console.warn('⚠️  不支持 onSelectionChange，将使用轮询方案');
+    }
+    // 方式4：事件不支持，启动轮询兜底
+    else {
+      console.warn('⚠️  不支持 onSelectionChange 事件，启动轮询方案（1秒间隔）');
+      startSelectionPolling(1000);
     }
   } catch (error) {
     console.error('❌ 设置选中监听器失败:', error);
+    // 出错也启动轮询兜底
+    try { startSelectionPolling(1000); } catch (e) { console.error('轮询启动失败:', e); }
   }
 }
 
@@ -406,6 +386,63 @@ export async function initFeishuEnv(): Promise<boolean> {
 }
 
 // ============================================
+// 通用：获取当前表格实例（多级降级）
+// ============================================
+
+/**
+ * 获取当前表格实例
+ * 优先级：getSelection().tableId > getActiveTable() > getTableList()[0]
+ */
+async function getCurrentTable(): Promise<{ table: any; tableId: string | null } | null> {
+  // 方案1：从 selection 获取 tableId
+  try {
+    const selection = await base.getSelection();
+    if (selection?.tableId) {
+      const table = await base.getTable(selection.tableId);
+      if (table) {
+        debugLog('getCurrentTable: 通过 selection 获取表格成功, tableId:', selection.tableId);
+        return { table, tableId: selection.tableId };
+      }
+    }
+  } catch (e) {
+    debugLog('getCurrentTable: selection 方式失败:', e);
+  }
+
+  // 方案2：使用 getActiveTable()
+  try {
+    if (typeof base.getActiveTable === 'function') {
+      const table = await base.getActiveTable();
+      if (table) {
+        // 尝试从 table 获取 id
+        const tableId = (table as any).id || (table as any).tableId || null;
+        debugLog('getCurrentTable: 通过 getActiveTable 获取成功, tableId:', tableId);
+        return { table, tableId };
+      }
+    }
+  } catch (e) {
+    debugLog('getCurrentTable: getActiveTable 方式失败:', e);
+  }
+
+  // 方案3：从 getTableList() 取第一个
+  try {
+    if (typeof base.getTableList === 'function') {
+      const tables = await base.getTableList();
+      if (Array.isArray(tables) && tables.length > 0) {
+        const table = tables[0];
+        const tableId = (table as any).id || (table as any).tableId || null;
+        debugLog('getCurrentTable: 通过 getTableList[0] 获取成功, tableId:', tableId);
+        return { table, tableId };
+      }
+    }
+  } catch (e) {
+    debugLog('getCurrentTable: getTableList 方式失败:', e);
+  }
+
+  debugLog('getCurrentTable: 所有方式均失败');
+  return null;
+}
+
+// ============================================
 // 数据获取函数（保持原有接口）
 // ============================================
 
@@ -420,47 +457,56 @@ export async function fetchFields(): Promise<Array<{
   }
 
   try {
-    const selection = await base.getSelection();
-    debugLog('selection:', selection);
-    
-    if (!selection?.tableId) {
-      debugLog('无法获取 tableId');
+    const result = await getCurrentTable();
+    if (!result?.table) {
+      debugLog('无法获取表格实例');
       return [];
     }
-    
-    const table = await base.getTable(selection.tableId);
-    debugLog('table:', !!table);
-    
+
+    const { table } = result;
     debugLog('开始获取字段数据...');
-    const rawFields = await table.getFieldList();
-    debugLog('原始字段数量:', rawFields.length);
-    
-    const fields: FieldInfo[] = [];
-    for (let index = 0; index < rawFields.length; index++) {
-      const field = rawFields[index];
-      
-      try {
-        const name = await field.getName();
-        const type = await field.getType();
-        const meta = await field.getMeta();
-        
-        const mappedType = FIELD_TYPE_MAP[type] || 'text';
-        
-        fields.push({
-          id: meta.id || `field_${index}`,
-          name: name || `字段${index + 1}`,
-          type: mappedType,
-        });
-      } catch (error) {
-        debugLog(`获取字段 ${index} 信息失败:`, error);
-        fields.push({
-          id: `field_${index}`,
-          name: `字段${index + 1}`,
-          type: 'text',
-        });
+
+    // 优先使用 getFieldMetaList（直接返回元信息，更可靠）
+    let rawFields: any[] = [];
+    if (typeof table.getFieldMetaList === 'function') {
+      rawFields = await table.getFieldMetaList();
+      debugLog('通过 getFieldMetaList 获取字段数量:', rawFields.length);
+    } else if (typeof table.getFieldList === 'function') {
+      const fieldInstances = await table.getFieldList();
+      debugLog('通过 getFieldList 获取字段实例数量:', fieldInstances.length);
+      // 逐个获取元信息
+      for (let index = 0; index < fieldInstances.length; index++) {
+        const field = fieldInstances[index];
+        try {
+          const name = await field.getName();
+          const type = await field.getType();
+          const meta = await field.getMeta();
+          rawFields.push({
+            id: meta?.id || `field_${index}`,
+            name: name || `字段${index + 1}`,
+            type: type,
+          });
+        } catch (error) {
+          debugLog(`获取字段 ${index} 信息失败:`, error);
+          rawFields.push({
+            id: `field_${index}`,
+            name: `字段${index + 1}`,
+            type: 1,
+          });
+        }
       }
     }
-    
+
+    const fields: FieldInfo[] = rawFields.map((field: any, index: number) => {
+      const typeNum = typeof field.type === 'number' ? field.type : parseInt(String(field.type), 10);
+      const mappedType = FIELD_TYPE_MAP[typeNum] || 'text';
+      return {
+        id: field.id || `field_${index}`,
+        name: field.name || `字段${index + 1}`,
+        type: mappedType,
+      };
+    });
+
     debugLog('最终返回的字段列表:', fields);
     return fields;
   } catch (error) {
@@ -479,14 +525,14 @@ export async function fetchRecords(): Promise<Array<{
   }
 
   try {
-    const selection = await base.getSelection();
-    if (!selection?.tableId) {
-      debugLog('无法获取 tableId');
+    const result = await getCurrentTable();
+    if (!result?.table) {
+      debugLog('无法获取表格实例');
       return [];
     }
-    
-    const table = await base.getTable(selection.tableId);
-    
+
+    const { table } = result;
+
     const recordIdList = await table.getRecordIdList();
     debugLog('获取到记录 ID 数量:', recordIdList?.length || 0);
     
@@ -724,66 +770,114 @@ export async function getSelectedRecords(): Promise<BitableRecord[]> {
   }
 
   try {
+    // 第一步：获取选中信息（用于 recordId）
     debugLog('第一步：调用 base.getSelection() 获取选中信息...');
     const selection = await base.getSelection();
+    debugLog('selection:', {
+      baseId: selection?.baseId,
+      tableId: selection?.tableId,
+      recordId: selection?.recordId,
+    });
     
-    // 🔍 输出完整的返回对象
-    debugLog('📍 base.getSelection() 完整返回:');
-    debugLog('  - baseId:', selection?.baseId);
-    debugLog('  - tableId:', selection?.tableId);
-    debugLog('  - viewId:', selection?.viewId);
-    debugLog('  - recordId:', selection?.recordId);
-    debugLog('  - fieldId:', selection?.fieldId);
-    debugLog('📍 原始对象:', JSON.stringify(selection, null, 2));
-    
-    // 至少需要 tableId
-    if (!selection?.tableId) {
-      debugLog('⚠️  没有 tableId，返回空数组');
-      return [];
-    }
-    
-    const { tableId, recordId } = selection;
-    debugLog('✅ 获取到 tableId:', tableId);
-    
-    debugLog('第二步：通过 tableId 获取表格...');
-    let table: any = null;
-    
-    if (typeof base.getTableById === 'function') {
-      table = await base.getTableById(tableId);
-    } else {
-      table = await base.getTable(tableId);
-    }
-    
-    if (!table) {
+    const recordId = selection?.recordId || null;
+
+    // 第二步：获取表格实例（使用三级降级）
+    debugLog('第二步：获取表格实例...');
+    const tableResult = await getCurrentTable();
+    if (!tableResult?.table) {
       debugLog('❌ 无法获取表格实例');
       return [];
     }
+    const { table } = tableResult;
+    debugLog('✅ 表格实例获取成功');
+
+    // 第三步：确定要获取的记录 ID
+    debugLog('第三步：确定记录 ID...');
+    let targetRecordIds: string[] = [];
     
-    debugLog('第三步：获取记录...');
-    let targetRecordId: string | null = recordId;
-    
-    // 如果没有 recordId，获取第一条记录
-    if (!targetRecordId) {
-      debugLog('没有 recordId，获取第一条记录...');
-      const recordIdList = await table.getRecordIdList();
+    if (recordId) {
+      // 用户选中了具体行
+      targetRecordIds = [recordId];
+      debugLog('使用选中的 recordId:', recordId);
+    } else {
+      // 没有选中行，尝试获取表格中的记录
+      debugLog('没有选中行，尝试获取表格记录列表...');
       
-      if (Array.isArray(recordIdList) && recordIdList.length > 0) {
-        targetRecordId = recordIdList[0];
-        debugLog('第一条记录 ID:', targetRecordId);
-      } else {
-        debugLog('⚠️  表格没有记录');
+      // 方式1：getRecordIdList（已废弃但仍可用）
+      try {
+        if (typeof table.getRecordIdList === 'function') {
+          const ids = await table.getRecordIdList();
+          if (Array.isArray(ids) && ids.length > 0) {
+            targetRecordIds = ids.filter((id: any) => typeof id === 'string' && id.length > 0);
+            debugLog(`通过 getRecordIdList 获取到 ${targetRecordIds.length} 条记录ID`);
+          }
+        }
+      } catch (e) {
+        debugLog('getRecordIdList 失败:', e);
+      }
+      
+      // 方式2：getRecordIdListByPage（推荐方式）
+      if (targetRecordIds.length === 0 && typeof table.getRecordIdListByPage === 'function') {
+        try {
+          const pageResult = await table.getRecordIdListByPage({ pageSize: 100, pageToken: undefined });
+          const ids = pageResult?.recordIds || pageResult?.items || [];
+          if (Array.isArray(ids) && ids.length > 0) {
+            targetRecordIds = ids.filter((id: any) => typeof id === 'string' && id.length > 0);
+            debugLog(`通过 getRecordIdListByPage 获取到 ${targetRecordIds.length} 条记录ID`);
+          }
+        } catch (e) {
+          debugLog('getRecordIdListByPage 失败:', e);
+        }
+      }
+      
+      // 方式3：getRecordList（另一种废弃方式）
+      if (targetRecordIds.length === 0 && typeof table.getRecordList === 'function') {
+        try {
+          const recordList = await table.getRecordList();
+          if (recordList && typeof recordList.getRecordById === 'function') {
+            // IRecordList 类型，需要遍历
+            debugLog('getRecordList 返回了可迭代对象');
+          }
+        } catch (e) {
+          debugLog('getRecordList 失败:', e);
+        }
+      }
+      
+      if (targetRecordIds.length === 0) {
+        debugLog('⚠️  表格没有记录或所有方式均失败');
         return [];
       }
     }
-    
-    // 获取记录数据
-    debugLog('获取记录数据，recordId:', targetRecordId);
+
+    // 只取第一条（getSelectedRecords 只返回当前选中/第一条记录）
+    const targetRecordId = targetRecordIds[0];
+    debugLog('目标记录 ID:', targetRecordId);
+
+    // 第四步：获取记录数据
+    debugLog('第四步：获取记录数据...');
     let recordData: any = null;
     
-    if (typeof table.getRecordById === 'function') {
-      recordData = await table.getRecordById(targetRecordId);
-    } else {
-      recordData = await table.getRecord(targetRecordId);
+    // 优先使用批量接口
+    if (typeof table.getRecordsByIds === 'function') {
+      try {
+        const records = await table.getRecordsByIds([targetRecordId]);
+        if (Array.isArray(records) && records.length > 0) {
+          recordData = records[0];
+          debugLog('通过 getRecordsByIds 获取记录成功');
+        }
+      } catch (e) {
+        debugLog('getRecordsByIds 失败:', e);
+      }
+    }
+    
+    // 回退到单条接口
+    if (!recordData && typeof table.getRecordById === 'function') {
+      try {
+        recordData = await table.getRecordById(targetRecordId);
+        debugLog('通过 getRecordById 获取记录成功');
+      } catch (e) {
+        debugLog('getRecordById 失败:', e);
+      }
     }
     
     if (!recordData) {
@@ -791,42 +885,10 @@ export async function getSelectedRecords(): Promise<BitableRecord[]> {
       return [];
     }
     
-    // 打印完整的记录数据结构
-    debugLog('📋 完整记录对象键:', Object.keys(recordData));
-    debugLog('📋 记录 fields 键:', Object.keys(recordData.fields || {}));
-    debugLog('📋 完整 recordData:', JSON.stringify(recordData, null, 2));
-    
-    // 尝试获取流程字段的值（Type 0）
-    debugLog('尝试获取流程字段的值...');
-    try {
-      // 直接使用已获取的 recordData，不再额外调用 API
-      const statusFieldId = 'fldwMmazk5'; // 当前状态字段ID
-      debugLog('尝试读取流程字段:', statusFieldId);
-      
-      // 直接从 recordData.fields 读取字段值
-      const statusValue = recordData.fields[statusFieldId];
-      debugLog('流程字段原始值:', statusValue);
-      debugLog('流程字段类型:', typeof statusValue);
-      
-      // 如果字段值是数组，打印数组内容
-      if (Array.isArray(statusValue)) {
-        debugLog('流程字段是数组，长度:', statusValue.length);
-        statusValue.forEach((item, index) => {
-          debugLog(`  [${index}]:`, JSON.stringify(item));
-        });
-      }
-      
-      // 如果获取到值，保持不变；如果为空，记录日志
-      if (statusValue !== undefined && statusValue !== null) {
-        debugLog('✅ 成功读取流程字段值:', statusValue);
-      } else {
-        debugLog('⚠️ 流程字段值为空或不存在');
-      }
-    } catch (e) {
-      debugLog('获取流程字段值失败:', e);
-    }
-    
-    debugLog('第四步：获取字段元信息...');
+    debugLog('记录 fields 键:', recordData.fields ? Object.keys(recordData.fields) : '无 fields');
+
+    // 第五步：获取字段元信息
+    debugLog('第五步：获取字段元信息...');
     let fieldMetaList: any[] = [];
     
     try {
@@ -834,97 +896,69 @@ export async function getSelectedRecords(): Promise<BitableRecord[]> {
         fieldMetaList = await table.getFieldMetaList();
         debugLog('通过 getFieldMetaList 获取到字段数:', fieldMetaList.length);
       } else if (typeof table.getFieldList === 'function') {
-        fieldMetaList = await table.getFieldList();
+        const fieldInstances = await table.getFieldList();
+        for (let i = 0; i < fieldInstances.length; i++) {
+          try {
+            const meta = await fieldInstances[i].getMeta();
+            fieldMetaList.push(meta);
+          } catch (e) {
+            debugLog(`获取字段 ${i} 元信息失败:`, e);
+          }
+        }
         debugLog('通过 getFieldList 获取到字段数:', fieldMetaList.length);
       }
-      
-      // 打印每个字段的详细信息以便调试
-      debugLog('字段元信息详情:');
-      fieldMetaList.forEach((field, index) => {
-        debugLog(`  [${index}] ID: ${field.id}, Name: ${field.name}, Type: ${field.type}, Typeof: ${typeof field.type}`);
-      });
     } catch (e) {
       debugLog('获取字段元信息失败:', e);
     }
-    
-    debugLog('第五步：处理数据...');
-    debugLog('📋 完整原始记录数据:', JSON.stringify(recordData, null, 2));
-    
-    // 确保记录数据包含 ID（飞书 SDK 返回的数据可能没有 id 字段）
+
+    // 第六步：处理数据
+    debugLog('第六步：处理记录数据...');
     const recordDataWithId = {
       ...recordData,
       id: recordData.id || recordData.recordId || targetRecordId,
     };
     
     const result = processRecordData(recordDataWithId, fieldMetaList);
-    debugLog('✅ processRecordData 完成');
-    
-    // 🔥【关键修复】第六步：处理附件字段 - 获取临时 URL 并生成 HTML
-    debugLog('第六步：处理附件字段...');
+    debugLog('✅ processRecordData 完成，字段数:', Object.keys(result.fields).length);
+
+    // 第七步：处理附件字段
+    debugLog('第七步：处理附件字段...');
     const attachmentFields = fieldMetaList?.filter((f: any) => f.type === 17) || [];
-    debugLog('发现附件字段数:', attachmentFields.length);
     
     if (attachmentFields.length > 0) {
+      debugLog('发现附件字段数:', attachmentFields.length);
       for (const attachField of attachmentFields) {
         const fieldId = attachField.id;
         const fieldName = attachField.name;
-        debugLog(`处理附件字段: ${fieldName} (${fieldId})`);
-        
         const attachValue = result.fields[fieldName];
+        
         if (Array.isArray(attachValue) && attachValue.length > 0) {
-          debugLog(`记录的附件字段 ${fieldName} 有 ${attachValue.length} 个文件`);
-          
-          // 提取 token 列表，并过滤掉 null/undefined/空字符串
-          const tokens = attachValue
-            .map((a: any) => a?.token || a?.file_token || null)
-            .filter((t): t is string => typeof t === 'string' && t.length > 0);
-          
-          if (tokens.length > 0) {
-            debugLog(`获取 ${tokens.length} 个附件的临时 URL...`);
-            
-            try {
-              // 获取附件字段实例并获取临时 URL
-              const attachmentField = await table.getField(fieldId);
-              
-              // 🔥【关键修复】使用 recordId 而不是 tokens 数组调用 getAttachmentUrls
-              // 因为飞书 SDK 的 getAttachmentUrls 可能对 tokens 数组处理有问题
-              const recordId = result.id;
-              if (!recordId) {
-                debugLog(`记录没有 ID，跳过附件处理`);
-                continue;
-              }
-              
-              const urls = await attachmentField.getAttachmentUrls(recordId);
-              
-              debugLog(`获取到 ${urls?.length || 0} 个临时 URL`);
-              
+          try {
+            const attachmentField = await table.getField(fieldId);
+            const recId = result.id;
+            if (recId && typeof attachmentField?.getAttachmentUrls === 'function') {
+              const urls = await attachmentField.getAttachmentUrls(recId);
               if (urls && Array.isArray(urls) && urls.length > 0) {
-                // 生成 HTML 内容
                 const images = urls.map((url: string, idx: number) => {
                   const fileName = attachValue[idx]?.name || '';
                   return `<img src="${url}" alt="${fileName}" style="max-width: 100px; margin: 4px; display: inline-block;"/>`;
                 }).join('');
-                
-                // 存储 _html 字段
                 result.fields[`_${fieldName}_html`] = `<div class="attachment-images">${images}</div>`;
                 debugLog(`生成 _${fieldName}_html 字段`);
               }
-            } catch (urlError) {
-              debugLog(`获取附件 URL 失败:`, urlError);
             }
+          } catch (urlError) {
+            debugLog(`获取附件 URL 失败:`, urlError);
           }
         }
       }
     }
     
-    debugLog('✅ 数据处理完成');
-    debugLog('======== getSelectedRecords() 结束 ========');
-    
+    debugLog(`✅ getSelectedRecords 完成，返回 1 条记录`);
     return [result];
   } catch (error) {
     debugLog('❌ getSelectedRecords() 失败:', error);
     debugLog('错误堆栈:', error instanceof Error ? error.stack : error);
-    debugLog('======== getSelectedRecords() 结束 ========');
     return [];
   }
 }
@@ -1051,15 +1085,25 @@ export async function fetchAppMetadata(): Promise<AppMetadata | null> {
     const selection = await base.getSelection();
     debugLog('selection:', selection);
     
-    if (!selection?.tableId) {
+    // 优先从 selection 获取
+    let tableId = selection?.tableId || null;
+    const baseId = selection?.baseId || null;
+
+    // 如果 selection 没有 tableId，从 getCurrentTable 获取
+    if (!tableId) {
+      const result = await getCurrentTable();
+      tableId = result?.tableId || null;
+    }
+
+    if (!tableId) {
       debugLog('无法获取 tableId');
       return null;
     }
     
     return {
-      appId: (selection as any).appId || 'unknown',
+      appId: baseId || 'unknown',
       name: '多维表格',
-      defaultTableId: selection.tableId,
+      defaultTableId: tableId,
       description: '从上下文获取',
     };
   } catch (error) {
@@ -1075,14 +1119,14 @@ export async function fetchFirstRecord(): Promise<Record<string, unknown> | null
   }
 
   try {
-    const selection = await base.getSelection();
-    if (!selection?.tableId) {
-      debugLog('无法获取 tableId');
+    const result = await getCurrentTable();
+    if (!result?.table) {
+      debugLog('无法获取表格实例');
       return null;
     }
-    
-    const table = await base.getTable(selection.tableId);
-    
+
+    const { table } = result;
+
     const recordIdList = await table.getRecordIdList();
     debugLog('首条记录 - 获取到记录 ID 数量:', recordIdList?.length || 0);
     
@@ -1115,13 +1159,25 @@ export async function fetchTableName(): Promise<string> {
   }
 
   try {
+    // 优先从 selection 获取 tableId，再查元信息
     const selection = await base.getSelection();
-    if (!selection?.tableId) {
-      return '多维表格';
+    if (selection?.tableId) {
+      try {
+        const meta = await base.getTableMetaById(selection.tableId);
+        if (meta?.name) return meta.name;
+      } catch (e) {
+        debugLog('通过 getTableMetaById 获取表名失败:', e);
+      }
     }
-    
-    const table = await base.getTable(selection.tableId);
-    return (table as any).name || '多维表格';
+
+    // 降级：从 getCurrentTable 获取
+    const result = await getCurrentTable();
+    if (result?.table) {
+      const name = (result.table as any).name;
+      if (name) return name;
+    }
+
+    return '多维表格';
   } catch {
     return '多维表格';
   }

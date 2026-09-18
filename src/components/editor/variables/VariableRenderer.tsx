@@ -80,7 +80,7 @@ export function VariableRenderer({ config, data, isEditing = false, fieldIdMap =
 // 格式化日期值
 function formatDateValue(value: any): string {
   if (value === null || value === undefined || value === '') {
-    return '-';
+    return '';
   }
 
   // 处理数组格式
@@ -119,8 +119,8 @@ function formatDateValue(value: any): string {
 
 // 格式化数字值
 function formatNumberValue(value: any): string {
-  if (value === null || value === undefined) {
-    return '-';
+  if (value === null || value === undefined || value === '') {
+    return '';
   }
 
   if (Array.isArray(value) && value.length > 0) {
@@ -149,8 +149,8 @@ function formatNumberValue(value: any): string {
 
 // 格式化布尔值
 function formatBooleanValue(value: any): string {
-  if (value === null || value === undefined) {
-    return '-';
+  if (value === null || value === undefined || value === '') {
+    return '';
   }
 
   if (typeof value === 'boolean') {
@@ -172,8 +172,8 @@ function formatBooleanValue(value: any): string {
 
 // 格式化文本值（通用）
 function formatTextValue(value: any): string {
-  if (value === null || value === undefined) {
-    return '-';
+  if (value === null || value === undefined || value === '') {
+    return '';
   }
 
   if (Array.isArray(value)) {

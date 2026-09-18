@@ -14,11 +14,17 @@ interface UserStore {
   token: string | null;
   hasAuthorizations: boolean;
   
+  // 数据库用户 ID（数字主键，用于模板等资源的归属查询）
+  dbUserId: number | null;
+  
   // 设置用户信息
   setUser: (user: User | null) => void;
   
   // 设置 JWT token
   setToken: (token: string | null) => void;
+  
+  // 设置数据库用户 ID
+  setDbUserId: (id: number | null) => void;
   
   // 设置是否有授权码
   setHasAuthorizations: (has: boolean) => void;
@@ -33,6 +39,7 @@ export const useUserStore = create<UserStore>()(
       user: null,
       token: null,
       hasAuthorizations: false,
+      dbUserId: null,
       
       setUser: (user: User | null) => {
         console.log('[userStore] setUser 被调用', user);
@@ -42,6 +49,10 @@ export const useUserStore = create<UserStore>()(
       setToken: (token: string | null) => {
         console.log('[userStore] setToken 被调用');
         set({ token });
+      },
+      
+      setDbUserId: (id: number | null) => {
+        set({ dbUserId: id });
       },
       
       setHasAuthorizations: (has: boolean) => {
@@ -55,6 +66,7 @@ export const useUserStore = create<UserStore>()(
           user: null,
           token: null,
           hasAuthorizations: false,
+          dbUserId: null,
         });
       },
     }),
@@ -65,6 +77,7 @@ export const useUserStore = create<UserStore>()(
         user: state.user,
         token: state.token,
         hasAuthorizations: state.hasAuthorizations,
+        dbUserId: state.dbUserId,
       }),
     }
   )

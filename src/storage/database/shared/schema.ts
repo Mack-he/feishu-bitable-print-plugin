@@ -4,13 +4,13 @@ import { sql } from "drizzle-orm"
 // 用户表
 export const users = mysqlTable('users', {
   id: int('id').autoincrement().primaryKey(),
-  feishuUserId: text('feishu_user_id').unique(),
-  feishuUnionId: text('feishu_union_id').unique().notNull(), // 使用 union_id 作为唯一标识
-  feishuOpenId: text('feishu_open_id'),
+  feishuUserId: varchar('feishu_user_id', { length: 255 }).unique(),
+  feishuUnionId: varchar('feishu_union_id', { length: 255 }).unique().notNull(), // 使用 union_id 作为唯一标识
+  feishuOpenId: varchar('feishu_open_id', { length: 255 }),
   name: text('name'),
   avatar: text('avatar'),
   email: text('email'),
-  tenantKey: text('tenant_key'),
+  tenantKey: varchar('tenant_key', { length: 255 }),
   createdAt: datetime('created_at').notNull(),
   updatedAt: datetime('updated_at').notNull(),
 });
@@ -19,7 +19,7 @@ export const users = mysqlTable('users', {
 export const userTableAuthorizations = mysqlTable('user_table_authorizations', {
   id: int('id').autoincrement().primaryKey(),
   userId: int('user_id').notNull(),
-  tableId: text('table_id').notNull(),
+  tableId: varchar('table_id', { length: 190 }).notNull(),
   tableName: text('table_name'),
   // 授权码（加密存储）
   appToken: text('app_token').notNull(),

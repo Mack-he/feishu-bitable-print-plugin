@@ -37,6 +37,7 @@ interface HomePageProps {
   onCreateNew: () => void;
   onSelectTemplate: (template: PresetTemplate) => void;
   onSelectUserTemplate?: (template: UserTemplate) => void;
+  onTemplateCreated?: (template: UserTemplate) => void;
   onLogout?: () => void;
   onDeleteAccount?: () => Promise<void>;
 }
@@ -87,7 +88,7 @@ function EnvStatusBadge({ status, isFeishuEnvironment }: { status: FeishuEnvStat
   }
 }
 
-export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, onLogout, onDeleteAccount }: HomePageProps) {
+export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, onTemplateCreated, onLogout, onDeleteAccount }: HomePageProps) {
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [showDebug, setShowDebug] = useState(false);
@@ -129,6 +130,7 @@ export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, 
       <TemplateSidebar
         onSelectTemplate={onSelectUserTemplate}
         onCreateNew={onCreateNew}
+        onTemplateCreated={onTemplateCreated}
         onLogout={onLogout}
         onDeleteAccount={onDeleteAccount}
       />

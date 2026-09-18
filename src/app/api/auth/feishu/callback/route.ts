@@ -148,20 +148,23 @@ export async function GET(request: Request) {
     console.log('[Feishu OAuth Callback API] hasAuthorizations:', hasAuthorizations);
 
     // 6. 重定向到前端回调页面
-    const callbackUrl = `/auth/callback?userId=${feishuUserId}&name=${encodeURIComponent(dbUser.name || '')}&hasAuthorizations=${hasAuthorizations}`;
+    // token 同时通过 cookie 和 URL 参数传递，优先 cookie，URL 作为兜底（避免 localhost cookie 问题）
+    const callbackUrl = `/auth/callback?userId=${feishuUserId}&name=${encodeURIComponent(dbUser.name || '')}&hasAuthorizations=${hasAuthorizations}&token=${encodeURIComponent(jwtToken)}`;
     const fullUrl = new URL(callbackUrl, baseUrl);
     
     const response = NextResponse.redirect(fullUrl);
     
+    // 根据环境动态设置 cookie 属性：localhost 开发环境用 secure:false + sameSite:lax，生产环境用 secure:true + sameSite:none
+    const isLocalhost = fullUrl.hostname === 'localhost' || fullUrl.hostname === '127.0.0.1';
     response.cookies.set('auth_token', jwtToken, {
       httpOnly: false,
-      secure: true,
-      sameSite: 'none',
+      secure: !isLocalhost,
+      sameSite: isLocalhost ? 'lax' : 'none',
       maxAge: 60 * 60 * 24 * 7,
       path: '/',
     });
     
-    console.log('[Feishu OAuth Callback API] Cookie 已设置，准备重定向');
+    console.log('[Feishu OAuth Callback API] Cookie 已设置 (secure=' + !isLocalhost + '), token 也已通过 URL 传递, 准备重定向');
     return response;
   } catch (error) {
     console.error('[Feishu OAuth Callback API] 飞书 OAuth 回调错误:', error);

@@ -46,6 +46,7 @@ import { zhCN } from 'date-fns/locale';
 interface TemplateSidebarProps {
   onSelectTemplate?: (template: UserTemplate) => void;
   onCreateNew?: () => void;
+  onTemplateCreated?: (template: UserTemplate) => void;
   onLogout?: () => void;
   onDeleteAccount?: () => Promise<void>;
 }
@@ -159,7 +160,7 @@ function TemplateItem({
   );
 }
 
-export function TemplateSidebar({ onSelectTemplate, onCreateNew, onLogout, onDeleteAccount }: TemplateSidebarProps) {
+export function TemplateSidebar({ onSelectTemplate, onCreateNew, onTemplateCreated, onLogout, onDeleteAccount }: TemplateSidebarProps) {
   const { 
     templates, 
     currentTemplate,
@@ -202,16 +203,19 @@ export function TemplateSidebar({ onSelectTemplate, onCreateNew, onLogout, onDel
 
     setIsCreatingTemplate(true);
     try {
-      await saveTemplate({
+      const newTemplate = await saveTemplate({
         name: newTemplateName.trim(),
         description: newTemplateDesc.trim() || undefined,
         data: {},
         isPublic: false,
       });
 
+      // 设置当前模板并通知父组件跳转到编辑器
+      setCurrentTemplate(newTemplate);
       setNewTemplateName('');
       setNewTemplateDesc('');
       setShowCreateDialog(false);
+      onTemplateCreated?.(newTemplate);
     } catch (error) {
       console.error('[TemplateSidebar] 创建模板失败:', error);
       alert('创建模板失败: ' + (error instanceof Error ? error.message : '未知错误'));

@@ -4,13 +4,13 @@ import EventSafetyLayer from '@/components/EventSafetyLayer';
 
 export const metadata: Metadata = {
   title: {
-    default: '新应用 | 扣子编程',
-    template: '%s | 扣子编程',
+    default: '新应用 | mack_he',
+    template: '%s | mack_he',
   },
   description:
-    '扣子编程是一款一站式云端 Vibe Coding 开发平台。通过对话轻松构建智能体、工作流和网站，实现从创意到上线的无缝衔接。',
+    'mack_he是一款一站式云端 Vibe Coding 开发平台。通过对话轻松构建智能体、工作流和网站，实现从创意到上线的无缝衔接。',
   keywords: [
-    '扣子编程',
+    'mack_he',
     'Coze Code',
     'Vibe Coding',
     'AI 编程',
@@ -27,11 +27,11 @@ export const metadata: Metadata = {
   //   icon: '',
   // },
   openGraph: {
-    title: '扣子编程 | 你的 AI 工程师已就位',
+    title: 'mack_he | 你的 AI 工程师已就位',
     description:
-      '我正在使用扣子编程 Vibe Coding，让创意瞬间上线。告别拖拽，拥抱心流。',
+      '我正在使用mack_he Vibe Coding，让创意瞬间上线。告别拖拽，拥抱心流。',
     url: 'https://code.coze.cn',
-    siteName: '扣子编程',
+    siteName: 'mack_he',
     locale: 'zh_CN',
     type: 'website',
     // images: [
@@ -39,7 +39,7 @@ export const metadata: Metadata = {
     //     url: '',
     //     width: 1200,
     //     height: 630,
-    //     alt: '扣子编程 - 你的 AI 工程师',
+    //     alt: 'mack_he - 你的 AI 工程师',
     //   },
     // ],
   },

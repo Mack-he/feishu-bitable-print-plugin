@@ -32,14 +32,17 @@ function AuthCallbackContent() {
 
         // 从 URL 读取参数（避免 useSearchParams 问题）
         const urlParams = new URLSearchParams(window.location.search);
-        const token = getCookie('auth_token');
+        // token 优先从 cookie 读取，读不到再从 URL 参数读取（兼容 localhost cookie 问题）
+        const token = getCookie('auth_token') || urlParams.get('token');
         const userId = urlParams.get('userId');
         const name = urlParams.get('name');
         const hasAuthorizations = urlParams.get('hasAuthorizations') === 'true';
         const errorParam = urlParams.get('error');
 
         console.log('[Auth Callback] 完整URL参数:', Object.fromEntries(urlParams.entries()));
-        console.log('[Auth Callback] 从 cookie 获取 token:', token ? '存在' : '不存在');
+        console.log('[Auth Callback] 从 cookie 获取 token:', getCookie('auth_token') ? '存在' : '不存在');
+        console.log('[Auth Callback] 从 URL 获取 token:', urlParams.get('token') ? '存在' : '不存在');
+        console.log('[Auth Callback] 最终 token:', token ? '存在' : '不存在');
         console.log('[Auth Callback] userId:', userId);
         console.log('[Auth Callback] name:', name);
         console.log('[Auth Callback] hasAuthorizations:', hasAuthorizations);
