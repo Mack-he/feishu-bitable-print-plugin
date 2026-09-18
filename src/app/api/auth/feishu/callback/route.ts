@@ -4,6 +4,7 @@ import { users, pluginLicenses } from '@/lib/db/schema';
 import { eq, and, gt } from 'drizzle-orm';
 import { generateToken } from '@/lib/auth';
 import { getUserAccessToken, getUserInfo } from '@/lib/feishu-oauth';
+import { refreshUserDepartments } from '@/lib/feishu-contact';
 
 export const dynamic = 'force-dynamic';
 
@@ -104,6 +105,14 @@ export async function GET(request: Request) {
           updatedAt: new Date(),
         })
         .where(eq(users.id, dbUser.id));
+    }
+
+    // 按需刷新该用户的部门归属（通讯录同步；失败不影响登录）
+    // 见 src/lib/feishu-contact.ts：按 user_id 查询用户所属部门
+    if (dbUser) {
+      refreshUserDepartments(dbUser.id).catch((error) => {
+        console.warn('[Feishu OAuth Callback API] 刷新用户部门失败（忽略）:', error);
+      });
     }
 
     // 4. 生成 JWT token

@@ -4,14 +4,40 @@ import { useUserStore } from './userStore';
 // 模板数据类型
 export interface Template {
   id: number;
-  userId?: number;
+  userId?: number | null;
   name: string;
   description?: string;
   thumbnail?: string;
   data: any; // 完整的编辑器状态
   isPublic: boolean;
+  /** private 仅自己 / public 所有登录用户 / restricted 仅授权名单 */
+  visibility?: 'private' | 'public' | 'restricted' | string;
+  /** active / disabled（管理员停用） */
+  status?: string;
+  /** mine 我的 / enterprise 企业模板 / shared 他人共享给我的 */
+  source?: 'mine' | 'enterprise' | 'shared';
+  isOwner?: boolean;
+  isEnterprise?: boolean;
+  canEdit?: boolean;
+  canPrint?: boolean;
+  canCopy?: boolean;
+  ownerName?: string | null;
+  /** 我的发布申请状态：pending / approved / rejected */
+  publishRequestStatus?: string | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface TemplateGrantEntry {
+  subjectType: 'user' | 'department';
+  subjectId: number;
+  includeSubDepartments?: boolean;
+  subjectName?: string | null;
+}
+
+export interface TemplateGrantsPayload {
+  visibility: 'private' | 'public' | 'restricted';
+  grants: TemplateGrantEntry[];
 }
 
 // 兼容旧代码的别名
@@ -35,8 +61,18 @@ function normalizeTemplate(t: any): Template {
   return {
     ...t,
     data: parsedData ?? {},
-    userId: t.userId ?? t.user_id,
+    userId: t.userId ?? t.user_id ?? null,
     isPublic: t.isPublic ?? t.is_public ?? false,
+    visibility: t.visibility ?? (t.isPublic || t.is_public ? 'public' : 'private'),
+    status: t.status ?? 'active',
+    source: t.source ?? undefined,
+    isOwner: t.isOwner ?? true,
+    isEnterprise: t.isEnterprise ?? (t.userId ?? t.user_id) === null,
+    canEdit: t.canEdit ?? true,
+    canPrint: t.canPrint ?? true,
+    canCopy: t.canCopy ?? true,
+    ownerName: t.ownerName ?? null,
+    publishRequestStatus: t.publishRequestStatus ?? null,
     createdAt: createdAt ? new Date(createdAt) : new Date(),
     updatedAt: updatedAt ? new Date(updatedAt) : new Date(),
   };
@@ -59,7 +95,17 @@ interface TemplateStore {
   
   // 删除模板
   deleteTemplate: (id: number) => Promise<void>;
-  
+
+  // 复制为我的模板（有可见权即可）
+  copyTemplate: (id: number) => Promise<Template>;
+
+  // 读取/保存共享设置（可见范围 + 授权名单）
+  fetchGrants: (id: number) => Promise<TemplateGrantsPayload>;
+  updateGrants: (id: number, payload: TemplateGrantsPayload) => Promise<TemplateGrantsPayload>;
+
+  // 申请发布为企业模板
+  requestPublish: (id: number, note?: string) => Promise<void>;
+
   // 设置当前模板
   setCurrentTemplate: (template: Template | null) => void;
   
@@ -227,6 +273,90 @@ export const useTemplateStore = create<TemplateStore>()((set) => ({
           });
           throw error;
         }
+      },
+
+      copyTemplate: async (id) => {
+        const token = useUserStore.getState().token;
+        if (!token) throw new Error('未登录');
+
+        set({ isLoading: true, error: null });
+        try {
+          const response = await fetch(`/api/templates/${id}/copy`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const result = await response.json();
+          if (!result.success) throw new Error(result.error || '复制模板失败');
+
+          const created = normalizeTemplate(result.data);
+          set((state) => ({ templates: [created, ...state.templates], isLoading: false }));
+          return created;
+        } catch (error) {
+          set({
+            error: error instanceof Error ? error.message : '复制模板失败',
+            isLoading: false,
+          });
+          throw error;
+        }
+      },
+
+      fetchGrants: async (id) => {
+        const token = useUserStore.getState().token;
+        if (!token) throw new Error('未登录');
+
+        const response = await fetch(`/api/templates/${id}/grants`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error || '获取共享设置失败');
+        return result.data as TemplateGrantsPayload;
+      },
+
+      updateGrants: async (id, payload) => {
+        const token = useUserStore.getState().token;
+        if (!token) throw new Error('未登录');
+
+        const response = await fetch(`/api/templates/${id}/grants`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error || '保存共享设置失败');
+
+        set((state) => ({
+          templates: state.templates.map((item) =>
+            item.id === id
+              ? { ...item, visibility: result.data.visibility, isPublic: result.data.visibility === 'public' }
+              : item
+          ),
+        }));
+        return result.data as TemplateGrantsPayload;
+      },
+
+      requestPublish: async (id, note) => {
+        const token = useUserStore.getState().token;
+        if (!token) throw new Error('未登录');
+
+        const response = await fetch(`/api/templates/${id}/publish-request`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ note: note || '' }),
+        });
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error || '提交申请失败');
+
+        set((state) => ({
+          templates: state.templates.map((item) =>
+            item.id === id ? { ...item, publishRequestStatus: 'pending' } : item
+          ),
+        }));
       },
 
       setCurrentTemplate: (template) => {

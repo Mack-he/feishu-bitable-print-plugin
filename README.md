@@ -163,6 +163,51 @@ mysql -h <host> -u <user> -p <database> < scripts/create-paper-presets.sql
 npx drizzle-kit push
 ```
 
+## 🔐 模板授权
+
+模板默认只能自己使用；要让别人也能用，需要显式配置可见范围或授权名单（判定逻辑集中在 `src/lib/template-access.ts`）。
+
+### 可见范围与权限
+
+| 可见范围 | 谁能用 | 能做什么 |
+| --- | --- | --- |
+| 仅自己（private，默认） | 创建者 | 查看、打印、编辑、删除 |
+| 所有用户（public） | 所有登录用户 | 查看、打印、复制为我的模板；**不能改原模板** |
+| 指定用户和部门（restricted） | 授权名单内的用户 / 部门成员 | 同上 |
+
+- **企业模板**：`user_id` 为 NULL 的模板，由管理员在后台发布，同样按可见范围分发。
+- **停用（status=disabled）**：管理员可在后台停用模板，停用后除创建者外都不可见。
+- 需要修改被共享的模板时，用「复制为我的模板」复制一份再改。
+- 部门授权**默认包含下级部门**（授权时可取消勾选），据此用部门的祖先链匹配。
+
+### 企业模板的两条发布路径
+
+1. **管理员直接发布**：后台「模板管理」→ 某个模板 →「发布为企业模板」（内容取当前快照），随后配置授权；内容更新后可用「从源模板重新发布」刷新。
+2. **用户申请 + 管理员审批**：用户在侧边栏模板菜单点「申请发布为企业模板」并填写说明 → 后台「发布申请」Tab 审批；通过时可直接指定可见范围与授权名单，也可驳回并填写理由（理由会回显给申请人）。
+
+### 部门数据（飞书通讯录同步）
+
+后台「部门管理」页点「同步通讯录」即可拉取部门树与用户-部门关系：
+
+- 查询用户所属部门按 **user_id**（`contact/v3/users/:user_id?user_id_type=user_id`），不使用 union_id；历史数据里 `feishu_user_id` 存成 union_id 的会自动反查纠正。
+- 部门树走 `contact/v3/departments/0/children`（根部门必须用 `department_id_type=department_id` 传 0），存储统一用 `open_department_id`，并把祖先链写入 `departments.path` 以支持「含下级部门」匹配。
+- **前置条件**：需在飞书开放平台为服务端自建应用开通通讯录权限（用户信息读取 + 部门信息读取）并发布生效，且应用可见范围覆盖目标用户；未开通时后台会给出明确提示，**用户维度授权不受影响**，仅部门维度为空。
+- 用户登录时会按需刷新本人部门（失败静默，不影响登录）。
+
+### 建表（新环境必做）
+
+```bash
+mysql -h <host> -u <user> -p <database> < scripts/create-template-grants.sql
+# 或
+npx drizzle-kit push
+```
+
+该脚本会扩 `templates`（visibility / status / source_template_id）并创建 `template_grants`、`departments`、`user_departments`、`template_publish_requests` 四张表；存量数据中 `is_public = 1` 的模板会迁移为 `visibility = 'public'`。
+
+### 已知限制
+
+打印在客户端完成，服务端的可见性判定作用于「模板列表」与「单条读取」：权限被回收后，浏览器中已加载过的模板数据无法远程清除，新会话即不可见。
+
 ## 📖 使用说明
 
 ### 🚨 飞书自定义插件（推荐）

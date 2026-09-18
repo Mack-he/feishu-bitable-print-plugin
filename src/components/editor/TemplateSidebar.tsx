@@ -37,8 +37,12 @@ import {
   Search,
   LogOut,
   Loader2,
+  Share2,
+  Upload,
+  Copy,
 } from 'lucide-react';
 import { useTemplateStore, UserTemplate } from '@/store/templateStore';
+import { ShareSettingsDialog } from './dialogs/ShareSettingsDialog';
 import { useUserStore } from '@/store/userStore';
 import { formatDistanceToNow } from 'date-fns';
 import { zhCN } from 'date-fns/locale';
@@ -51,21 +55,68 @@ interface TemplateSidebarProps {
   onDeleteAccount?: () => Promise<void>;
 }
 
+// 模板来源徽标
+function SourceBadge({ template }: { template: UserTemplate }) {
+  if (template.isEnterprise) {
+    return (
+      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] bg-purple-50 text-purple-600 border border-purple-200">
+        企业模板
+      </span>
+    );
+  }
+  if (template.source === 'shared') {
+    return (
+      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] bg-amber-50 text-amber-700 border border-amber-200">
+        共享给我
+      </span>
+    );
+  }
+  if (template.status === 'disabled') {
+    return (
+      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] bg-red-50 text-red-600 border border-red-200">
+        已停用
+      </span>
+    );
+  }
+  if (template.visibility === 'public') {
+    return (
+      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] bg-blue-50 text-blue-600 border border-blue-200">
+        所有用户
+      </span>
+    );
+  }
+  if (template.visibility === 'restricted') {
+    return (
+      <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] bg-green-50 text-green-700 border border-green-200">
+        指定授权
+      </span>
+    );
+  }
+  return null;
+}
+
 // 模板项组件
 function TemplateItem({ 
   template, 
   isActive, 
   onSelect, 
   onEdit, 
-  onDelete 
+  onDelete,
+  onShare,
+  onCopy,
+  onRequestPublish,
 }: {
   template: UserTemplate;
   isActive: boolean;
   onSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onShare?: () => void;
+  onCopy?: () => void;
+  onRequestPublish?: () => void;
 }) {
   const [showMenu, setShowMenu] = useState(false);
+  const isOwner = template.isOwner !== false && !template.isEnterprise;
 
   return (
     <div 
@@ -86,14 +137,15 @@ function TemplateItem({
           <FileText className="w-5 h-5" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-1">
             <h4 className={`
               font-medium text-sm truncate
               ${isActive ? 'text-blue-900' : 'text-gray-900'}
             `}>
               {template.name}
             </h4>
-            <div className="relative">
+            <div className="relative flex items-center gap-1 flex-shrink-0">
+              <SourceBadge template={template} />
               <Button
                 variant="ghost"
                 size="icon"
@@ -105,31 +157,70 @@ function TemplateItem({
               >
                 <MoreVertical className="w-4 h-4" />
               </Button>
-              
+
               {showMenu && (
-                <div className="absolute right-0 top-full mt-1 w-32 bg-white border rounded-lg shadow-lg z-10">
-                  <button
-                    className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 rounded-t-lg"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onEdit();
-                      setShowMenu(false);
-                    }}
-                  >
-                    <Edit className="w-4 h-4" />
-                    编辑
-                  </button>
-                  <button
-                    className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 rounded-b-lg"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDelete();
-                      setShowMenu(false);
-                    }}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    删除
-                  </button>
+                <div className="absolute right-0 top-full mt-1 w-40 bg-white border rounded-lg shadow-lg z-10">
+                  {isOwner ? (
+                    <>
+                      <button
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 rounded-t-lg"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEdit();
+                          setShowMenu(false);
+                        }}
+                      >
+                        <Edit className="w-4 h-4" />
+                        编辑
+                      </button>
+                      <button
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onShare?.();
+                          setShowMenu(false);
+                        }}
+                      >
+                        <Share2 className="w-4 h-4" />
+                        共享设置
+                      </button>
+                      <button
+                        className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
+                        disabled={template.publishRequestStatus === 'pending'}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onRequestPublish?.();
+                          setShowMenu(false);
+                        }}
+                      >
+                        <Upload className="w-4 h-4" />
+                        {template.publishRequestStatus === 'pending' ? '发布申请审核中' : '申请发布为企业模板'}
+                      </button>
+                      <button
+                        className="w-full px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 rounded-b-lg"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDelete();
+                          setShowMenu(false);
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        删除
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      className="w-full px-3 py-2 text-left text-sm hover:bg-gray-50 flex items-center gap-2 rounded-lg"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onCopy?.();
+                        setShowMenu(false);
+                      }}
+                    >
+                      <Copy className="w-4 h-4" />
+                      复制为我的模板
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -185,7 +276,11 @@ export function TemplateSidebar({ onSelectTemplate, onCreateNew, onTemplateCreat
   const [showDeleteTemplateDialog, setShowDeleteTemplateDialog] = useState(false);
   const [isDeletingTemplate, setIsDeletingTemplate] = useState(false);
 
-  // 移除了频繁的 console.log，避免性能问题
+  // 共享设置 / 申请发布
+  const [shareTemplate, setShareTemplate] = useState<UserTemplate | null>(null);
+  const [publishTarget, setPublishTarget] = useState<UserTemplate | null>(null);
+  const [publishNote, setPublishNote] = useState('');
+  const [isSubmittingPublish, setIsSubmittingPublish] = useState(false);
 
   // 过滤模板
   const filteredTemplates = templates.filter((template) => {
@@ -196,6 +291,44 @@ export function TemplateSidebar({ onSelectTemplate, onCreateNew, onTemplateCreat
       (template.description?.toLowerCase().includes(query) || false)
     );
   });
+
+  // 按来源分组展示：我的模板 / 企业模板 / 共享给我
+  const myTemplates = filteredTemplates.filter((t) => t.source === 'mine' || (!t.source && !t.isEnterprise));
+  const enterpriseTemplates = filteredTemplates.filter((t) => t.source === 'enterprise' || t.isEnterprise);
+  const sharedTemplates = filteredTemplates.filter((t) => t.source === 'shared');
+
+  const templateGroups = [
+    { key: 'mine', label: '我的模板', items: myTemplates },
+    { key: 'enterprise', label: '企业模板', items: enterpriseTemplates },
+    { key: 'shared', label: '共享给我', items: sharedTemplates },
+  ].filter((group) => group.items.length > 0);
+
+  // 复制非本人模板为我的模板
+  const handleCopyTemplate = async (template: UserTemplate) => {
+    try {
+      const created = await useTemplateStore.getState().copyTemplate(template.id);
+      setCurrentTemplate(created);
+      onTemplateCreated?.(created);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '复制模板失败');
+    }
+  };
+
+  // 提交企业模板发布申请
+  const handleSubmitPublish = async () => {
+    if (!publishTarget) return;
+    setIsSubmittingPublish(true);
+    try {
+      await useTemplateStore.getState().requestPublish(publishTarget.id, publishNote);
+      setPublishTarget(null);
+      setPublishNote('');
+      alert('已提交发布申请，等待管理员审核');
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '提交申请失败');
+    } finally {
+      setIsSubmittingPublish(false);
+    }
+  };
 
   // 处理创建新模板
   const handleCreateTemplate = async () => {
@@ -334,15 +467,28 @@ export function TemplateSidebar({ onSelectTemplate, onCreateNew, onTemplateCreat
                 </p>
               </div>
             ) : (
-              filteredTemplates.map((template) => (
-                <TemplateItem
-                  key={template.id}
-                  template={template}
-                  isActive={template.id === currentTemplate?.id}
-                  onSelect={() => handleSelectTemplate(template)}
-                  onEdit={() => openEditDialog(template)}
-                  onDelete={() => handleDeleteTemplate(template.id)}
-                />
+              templateGroups.map((group) => (
+                <div key={group.key} className="space-y-2">
+                  <p className="text-xs font-medium text-gray-400 px-1 pt-1">
+                    {group.label}（{group.items.length}）
+                  </p>
+                  {group.items.map((template) => (
+                    <TemplateItem
+                      key={template.id}
+                      template={template}
+                      isActive={template.id === currentTemplate?.id}
+                      onSelect={() => handleSelectTemplate(template)}
+                      onEdit={() => openEditDialog(template)}
+                      onDelete={() => handleDeleteTemplate(template.id)}
+                      onShare={() => setShareTemplate(template)}
+                      onCopy={() => handleCopyTemplate(template)}
+                      onRequestPublish={() => {
+                        setPublishTarget(template);
+                        setPublishNote('');
+                      }}
+                    />
+                  ))}
+                </div>
               ))
             )}
           </div>
@@ -576,6 +722,52 @@ export function TemplateSidebar({ onSelectTemplate, onCreateNew, onTemplateCreat
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* 共享设置 */}
+      <ShareSettingsDialog
+        open={!!shareTemplate}
+        onOpenChange={(next) => !next && setShareTemplate(null)}
+        template={shareTemplate}
+        onSaved={() => {
+          useTemplateStore.getState().fetchTemplates().catch(() => {});
+        }}
+      />
+
+      {/* 申请发布为企业模板 */}
+      <Dialog open={!!publishTarget} onOpenChange={(next) => !next && setPublishTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>申请发布为企业模板</DialogTitle>
+            <DialogDescription>
+              管理员审核通过后，该模板会成为企业模板并可按用户/部门配置授权；内容更新后可再次联系管理员重新发布
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm">
+              模板：<span className="font-medium">{publishTarget?.name}</span>
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="publish-note">申请说明（可选）</Label>
+              <Textarea
+                id="publish-note"
+                rows={3}
+                value={publishNote}
+                placeholder="例如：集团统一使用的报销单模板，需要给财务部使用"
+                onChange={(event) => setPublishNote(event.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPublishTarget(null)} disabled={isSubmittingPublish}>
+              取消
+            </Button>
+            <Button onClick={handleSubmitPublish} disabled={isSubmittingPublish}>
+              {isSubmittingPublish ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+              提交申请
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

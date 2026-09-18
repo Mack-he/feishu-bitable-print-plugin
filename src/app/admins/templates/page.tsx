@@ -14,23 +14,28 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TemplateCanvasPreview } from '@/components/template/TemplateCanvasPreview';
+import { TemplateGrantsDialog } from '@/components/admin/TemplateGrantsDialog';
+import { PublishRequestsPanel } from '@/components/admin/PublishRequestsPanel';
 import {
-  Plus,
   Edit,
   Trash2,
   FileText,
   MoreHorizontal,
   Search,
   Eye,
-  Copy,
+  Ban,
+  CheckCircle2,
+  Upload,
+  ShieldCheck,
+  Loader2,
   X,
 } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
 export default function TemplatesPage() {
-  const { templates, fetchTemplates, addTemplate, updateTemplate, deleteTemplate } = useAdminStore();
+  const { templates, fetchTemplates, updateTemplate, deleteTemplate, token: adminToken } = useAdminStore();
   const [searchQuery, setSearchQuery] = useState('');
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState('templates');
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<any>(null);
   const [formData, setFormData] = useState({
@@ -40,6 +45,15 @@ export default function TemplatesPage() {
 
   const [isPreviewDialogOpen, setIsPreviewDialogOpen] = useState(false);
   const [previewTemplate, setPreviewTemplate] = useState<any>(null);
+
+  // 授权设置 / 发布为企业模板
+  const [grantsTarget, setGrantsTarget] = useState<any>(null);
+  const [publishTarget, setPublishTarget] = useState<any>(null);
+  const [publishName, setPublishName] = useState('');
+  const [publishVisibility, setPublishVisibility] = useState<'public' | 'restricted'>('public');
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
 
   // 加载模板列表
   useEffect(() => {
@@ -52,14 +66,64 @@ export default function TemplatesPage() {
     template.description.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleAdd = async () => {
-    await addTemplate({
-      name: formData.name,
-      description: formData.description,
-      data: {},
-    });
-    setFormData({ name: '', description: '' });
-    setIsAddDialogOpen(false);
+  /** 把用户模板发布为企业模板（内容快照 + 可选授权范围） */
+  const handlePublish = async () => {
+    if (!publishTarget || !adminToken) return;
+    setIsPublishing(true);
+    setPublishError(null);
+    try {
+      const isRepublish = !!publishTarget.isEnterprise;
+      const response = await fetch('/api/admin/templates/publish', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({
+          sourceTemplateId: isRepublish ? publishTarget.sourceTemplateId : publishTarget.id,
+          enterpriseTemplateId: isRepublish ? publishTarget.id : undefined,
+          name: publishName.trim() || publishTarget.name,
+          visibility: publishVisibility,
+        }),
+      });
+      const result = await response.json();
+      if (!result.success) throw new Error(result.error || '发布失败');
+      setPublishTarget(null);
+      await fetchTemplates();
+      if (result.data?.id) {
+        setGrantsTarget({ id: result.data.id, name: result.data.name, visibility: result.data.visibility });
+      }
+    } catch (error) {
+      setPublishError(error instanceof Error ? error.message : '发布失败');
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  /** 停用 / 启用模板 */
+  const handleToggleStatus = async (template: any) => {
+    if (!adminToken) return;
+    setBusyId(template.id);
+    try {
+      const response = await fetch('/api/admin/templates', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${adminToken}`,
+        },
+        body: JSON.stringify({
+          id: template.id,
+          status: template.status === 'disabled' ? 'active' : 'disabled',
+        }),
+      });
+      const result = await response.json();
+      if (!result.success) throw new Error(result.error || '操作失败');
+      await fetchTemplates();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : '操作失败');
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const handleEdit = async () => {
@@ -99,54 +163,26 @@ export default function TemplatesPage() {
         <div>
           <h1 className="text-2xl font-bold">模板管理</h1>
           <p className="text-muted-foreground">
-            管理打印模板和预设
+            管理用户模板、发布企业模板并配置授权范围（用户/部门）
           </p>
         </div>
-        <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
-              新增模板
-            </Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>新增模板</DialogTitle>
-              <DialogDescription>
-                创建一个新的打印模板
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">模板名称</Label>
-                <Input
-                  id="name"
-                  placeholder="请输入模板名称"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="description">模板描述</Label>
-                <Textarea
-                  id="description"
-                  placeholder="请输入模板描述"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  rows={3}
-                />
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setIsAddDialogOpen(false)}>
-                取消
-              </Button>
-              <Button onClick={handleAdd}>创建</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
 
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="templates">模板列表</TabsTrigger>
+          <TabsTrigger value="requests">发布申请</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {activeTab === 'requests' ? (
+        adminToken ? (
+          <PublishRequestsPanel adminToken={adminToken} />
+        ) : (
+          <p className="text-sm text-muted-foreground">请先登录管理员账号</p>
+        )
+      ) : (
+        <>
       {/* 搜索栏 */}
       <Card>
         <CardContent className="p-4">
@@ -175,10 +211,10 @@ export default function TemplatesPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>模板名称</TableHead>
-                <TableHead>创建者</TableHead>
-                <TableHead>描述</TableHead>
-                <TableHead>公开</TableHead>
-                <TableHead>创建时间</TableHead>
+                <TableHead>来源 / 创建者</TableHead>
+                <TableHead>可见范围</TableHead>
+                <TableHead>授权数</TableHead>
+                <TableHead>状态</TableHead>
                 <TableHead>更新时间</TableHead>
                 <TableHead className="text-right">操作</TableHead>
               </TableRow>
@@ -193,29 +229,47 @@ export default function TemplatesPage() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Avatar className="h-8 w-8">
-                        <AvatarImage src={template.userAvatar} alt={template.userName} />
-                        <AvatarFallback>{template.userName?.charAt(0) || 'U'}</AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="text-sm font-medium">{template.userName || '未知用户'}</p>
-                        <p className="text-xs text-muted-foreground font-mono">
-                          {template.feishuUserId?.slice(0, 12)}...
-                        </p>
+                    {template.isEnterprise ? (
+                      <div className="flex items-center gap-2">
+                        <Badge variant="default" className="text-xs bg-purple-600">企业模板</Badge>
+                        {template.sourceTemplateId && (
+                          <span className="text-xs text-muted-foreground">源模板 #{template.sourceTemplateId}</span>
+                        )}
                       </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {template.description}
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={template.userAvatar} alt={template.userName} />
+                          <AvatarFallback>{template.userName?.charAt(0) || 'U'}</AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <p className="text-sm font-medium">{template.userName || '未知用户'}</p>
+                          <p className="text-xs text-muted-foreground font-mono">
+                            {template.feishuUserId?.slice(0, 12)}...
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>
-                    <Badge variant={template.isPublic ? 'default' : 'secondary'}>
-                      {template.isPublic ? '是' : '否'}
+                    <Badge
+                      variant={template.visibility === 'public' ? 'default' : 'secondary'}
+                      className="text-xs"
+                    >
+                      {template.visibility === 'public'
+                        ? '所有用户'
+                        : template.visibility === 'restricted'
+                          ? '指定授权'
+                          : '仅创建者'}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {new Date(template.createdAt).toLocaleDateString()}
+                    {template.visibility === 'restricted' ? `${template.grantCount || 0} 个对象` : '-'}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={template.status === 'disabled' ? 'destructive' : 'secondary'} className="text-xs">
+                      {template.status === 'disabled' ? '已停用' : '启用中'}
+                    </Badge>
                   </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
                     {new Date(template.updatedAt).toLocaleDateString()}
@@ -232,13 +286,58 @@ export default function TemplatesPage() {
                           <Eye className="h-4 w-4 mr-2" />
                           预览
                         </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Copy className="h-4 w-4 mr-2" />
-                          复制
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openEditDialog(template)}>
-                          <Edit className="h-4 w-4 mr-2" />
-                          编辑
+                        {template.isEnterprise ? (
+                          <>
+                            <DropdownMenuItem
+                              onClick={() =>
+                                setGrantsTarget({ id: template.id, name: template.name, visibility: template.visibility })
+                              }
+                            >
+                              <ShieldCheck className="h-4 w-4 mr-2" />
+                              授权设置
+                            </DropdownMenuItem>
+                            {template.sourceTemplateId && (
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setPublishTarget(template);
+                                  setPublishName(template.name);
+                                  setPublishVisibility(template.visibility === 'restricted' ? 'restricted' : 'public');
+                                  setPublishError(null);
+                                }}
+                              >
+                                <Upload className="h-4 w-4 mr-2" />
+                                从源模板重新发布
+                              </DropdownMenuItem>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setPublishTarget(template);
+                                setPublishName(template.name);
+                                setPublishVisibility('public');
+                                setPublishError(null);
+                              }}
+                            >
+                              <Upload className="h-4 w-4 mr-2" />
+                              发布为企业模板
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => openEditDialog(template)}>
+                              <Edit className="h-4 w-4 mr-2" />
+                              编辑
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                        <DropdownMenuItem onClick={() => handleToggleStatus(template)} disabled={busyId === template.id}>
+                          {busyId === template.id ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : template.status === 'disabled' ? (
+                            <CheckCircle2 className="h-4 w-4 mr-2" />
+                          ) : (
+                            <Ban className="h-4 w-4 mr-2" />
+                          )}
+                          {template.status === 'disabled' ? '启用' : '停用'}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="text-red-600"
@@ -410,6 +509,83 @@ export default function TemplatesPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* 发布 / 重新发布为企业模板 */}
+      <Dialog open={!!publishTarget} onOpenChange={(next) => !next && setPublishTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{publishTarget?.isEnterprise ? '从源模板重新发布' : '发布为企业模板'}</DialogTitle>
+            <DialogDescription>
+              {publishTarget?.isEnterprise
+                ? '用源模板的最新内容覆盖该企业模板（授权名单不受影响）'
+                : '生成一个企业模板（内容取当前快照），发布后可配置授权范围'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="publish-name">企业模板名称</Label>
+              <Input
+                id="publish-name"
+                value={publishName}
+                onChange={(event) => setPublishName(event.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>可见范围</Label>
+              <div className="flex border rounded-md overflow-hidden w-fit">
+                <Button
+                  variant={publishVisibility === 'public' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="rounded-none"
+                  onClick={() => setPublishVisibility('public')}
+                >
+                  所有用户
+                </Button>
+                <Button
+                  variant={publishVisibility === 'restricted' ? 'default' : 'ghost'}
+                  size="sm"
+                  className="rounded-none"
+                  onClick={() => setPublishVisibility('restricted')}
+                >
+                  指定用户和部门
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {publishVisibility === 'restricted'
+                  ? '发布后会自动打开「授权设置」，选择可使用的用户或部门'
+                  : '所有登录用户都能查看和打印该模板'}
+              </p>
+            </div>
+
+            {publishError && <p className="text-xs text-destructive">{publishError}</p>}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPublishTarget(null)} disabled={isPublishing}>
+              取消
+            </Button>
+            <Button onClick={handlePublish} disabled={isPublishing || !publishName.trim()}>
+              {isPublishing ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : null}
+              {publishTarget?.isEnterprise ? '重新发布' : '发布'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 授权设置 */}
+      {adminToken && (
+        <TemplateGrantsDialog
+          open={!!grantsTarget}
+          onOpenChange={(next) => !next && setGrantsTarget(null)}
+          adminToken={adminToken}
+          template={grantsTarget}
+          onSaved={() => fetchTemplates()}
+        />
+      )}
+        </>
+      )}
     </div>
   );
 }

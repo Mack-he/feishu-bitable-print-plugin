@@ -15,7 +15,7 @@ interface AdminUser {
 // 模板类型
 interface Template {
   id: number;
-  userId: number;
+  userId: number | null;
   userName: string;
   userAvatar: string;
   feishuUserId: string;
@@ -24,6 +24,16 @@ interface Template {
   data: any; // 完整的模板数据（包含组件、页面配置等）
   config?: Record<string, unknown>; // 兼容旧代码
   isPublic: boolean;
+  /** private / public / restricted */
+  visibility?: string;
+  /** active / disabled */
+  status?: string;
+  /** userId 为 null 表示企业模板 */
+  isEnterprise?: boolean;
+  /** 企业模板的内容来源模板 id */
+  sourceTemplateId?: number | null;
+  /** 授权对象数量（用户 + 部门） */
+  grantCount?: number;
   createdAt: string;
   updatedAt: string;
 }

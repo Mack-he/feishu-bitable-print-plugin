@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { Printer, ChevronLeft, ChevronRight, Eye, FileText, Pencil, Download, ScanSearch, X, Plus, LayoutGrid, List, Tag, Layout } from 'lucide-react';
+import { Printer, ChevronLeft, ChevronRight, Eye, FileText, Pencil, Download, ScanSearch, X, Plus, LayoutGrid, List, Tag, Layout, Copy, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -2701,6 +2701,25 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
     onEditTemplate?.(selectedTemplate);
   }, [selectedTemplate, setCurrentTemplate, onEditTemplate]);
 
+  // 复制非本人模板（企业模板 / 他人共享）为我的模板后再编辑
+  const [isCopying, setIsCopying] = useState(false);
+  const handleCopyTemplate = useCallback(async () => {
+    if (!selectedTemplate) {
+      toast.error('请先选择一个模板');
+      return;
+    }
+    setIsCopying(true);
+    try {
+      const created = await useTemplateStore.getState().copyTemplate(selectedTemplate.id);
+      toast.success(`已复制为「${created.name}」`);
+      setCurrentTemplate(created);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '复制模板失败');
+    } finally {
+      setIsCopying(false);
+    }
+  }, [selectedTemplate, setCurrentTemplate]);
+
   // 刷新数据（使用飞书 SDK 获取记录）
   const handleRefreshData = useCallback(async () => {
     if (!isFeishuEnvironment) {
@@ -2824,6 +2843,12 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
   const handlePrint = useCallback(() => {
     if (!selectedTemplate) {
       toast.error('请先选择一个模板');
+      return;
+    }
+
+    // 兜底：无打印权限（模板被停用或授权被回收）时阻断
+    if (selectedTemplate.canPrint === false) {
+      toast.error('你没有该模板的打印权限，请联系管理员');
       return;
     }
 
@@ -3226,10 +3251,25 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
                             <Badge variant="outline" className="text-xs">
                               {template.data?.components?.length || 0} 组件
                             </Badge>
-                            {template.isPublic && (
-                              <Badge variant="secondary" className="text-xs">
-                                公开
+                            {template.source === 'enterprise' || template.isEnterprise ? (
+                              <Badge variant="secondary" className="text-xs bg-purple-50 text-purple-700">
+                                企业模板
                               </Badge>
+                            ) : template.source === 'shared' ? (
+                              <Badge variant="secondary" className="text-xs bg-amber-50 text-amber-700">
+                                共享给我
+                              </Badge>
+                            ) : template.visibility === 'public' ? (
+                              <Badge variant="secondary" className="text-xs">
+                                所有用户
+                              </Badge>
+                            ) : template.visibility === 'restricted' ? (
+                              <Badge variant="secondary" className="text-xs bg-green-50 text-green-700">
+                                指定授权
+                              </Badge>
+                            ) : null}
+                            {template.ownerName && template.source === 'shared' && (
+                              <span className="text-[10px] text-gray-400">来自 {template.ownerName}</span>
                             )}
                           </div>
                         </button>
@@ -3416,16 +3456,32 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
                   页面设置
                 </Button>
                 
-                {/* 编辑模板按钮 */}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleEdit}
-                  disabled={!selectedTemplate}
-                >
-                  <Pencil className="h-4 w-4 mr-2" />
-                  编辑模板
-                </Button>
+                {/* 编辑 / 复制：非本人模板（企业模板、他人共享）不能直接改，只能复制一份再改 */}
+                {selectedTemplate && selectedTemplate.canEdit === false ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleCopyTemplate}
+                    disabled={!selectedTemplate || isCopying}
+                  >
+                    {isCopying ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Copy className="h-4 w-4 mr-2" />
+                    )}
+                    复制为我的模板
+                  </Button>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleEdit}
+                    disabled={!selectedTemplate}
+                  >
+                    <Pencil className="h-4 w-4 mr-2" />
+                    编辑模板
+                  </Button>
+                )}
               </div>
 
               {/* 中间：已选数据计数 */}
