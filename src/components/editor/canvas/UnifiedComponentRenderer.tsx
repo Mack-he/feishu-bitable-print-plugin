@@ -1,9 +1,10 @@
 'use client';
 
 import React from 'react';
-import { CanvasComponentNode, Field, FieldTypeMap, StyleConfig, ComponentTextStyle } from '@/types/editor';
+import { CanvasComponentNode, Field, FieldTypeMap, StyleConfig, ComponentTextStyle, QRCodeCanvasNode, BarcodeCanvasNode } from '@/types/editor';
 import { VariableTextRenderer } from '@/components/VariableTextRenderer';
 import { AttachmentVariableConfig } from '@/components/editor/variables';
+import { QrCodeView, BarcodeView } from './CodeViews';
 
 // 渲染模式
 export type RenderMode = 'edit' | 'preview' | 'print';
@@ -116,10 +117,10 @@ export function UnifiedComponentRenderer({
       return renderLineComponent(component);
     
     case 'qrcode':
-      return renderQrcodeComponent(component);
+      return renderQrcodeComponent({ component, record, fields });
     
     case 'barcode':
-      return renderBarcodeComponent(component);
+      return renderBarcodeComponent({ component, record, fields });
     
     case 'image':
       return renderImageComponent(component);
@@ -728,10 +729,24 @@ function renderLineComponent(component: CanvasComponentNode) {
   );
 }
 
-function renderQrcodeComponent(component: CanvasComponentNode) {
+function renderQrcodeComponent({
+  component,
+  record,
+  fields,
+}: {
+  component: CanvasComponentNode;
+  record?: Record<string, unknown>;
+  fields?: Field[];
+}) {
+  const qrcode = component as QRCodeCanvasNode;
   return (
     <div className="flex items-center justify-center">
-      <div className="w-24 h-24 bg-gray-100 border border-gray-300" />
+      <QrCodeView
+        content={qrcode.content}
+        size={qrcode.size}
+        record={record}
+        fields={fields}
+      />
     </div>
   );
 }
@@ -771,10 +786,27 @@ function renderCheckboxComponent(component: CanvasComponentNode) {
   );
 }
 
-function renderBarcodeComponent(component: CanvasComponentNode) {
+function renderBarcodeComponent({
+  component,
+  record,
+  fields,
+}: {
+  component: CanvasComponentNode;
+  record?: Record<string, unknown>;
+  fields?: Field[];
+}) {
+  const barcode = component as BarcodeCanvasNode;
   return (
     <div className="flex items-center justify-center">
-      <div className="w-32 h-12 bg-gray-100 border border-gray-300" />
+      <BarcodeView
+        content={barcode.content}
+        format={barcode.format}
+        barWidth={barcode.barWidth}
+        height={barcode.height}
+        displayValue={barcode.displayValue}
+        record={record}
+        fields={fields}
+      />
     </div>
   );
 }

@@ -20,6 +20,7 @@ import { feishuEnv } from '@/lib/feishu-env';
 import { onSelectionChange } from '@/lib/feishu-env';
 import { MixedContentRenderer, extractVariables, FieldTypeMap, type VariableType } from '@/components/editor/variables';
 import { formatCheckboxGlyphsHtml } from '@/components/BoxAwareText';
+import { QrCodeView, BarcodeView, buildCodeSvg } from '@/components/editor/canvas/CodeViews';
 
 
 interface TemplatePreviewProps {
@@ -1065,7 +1066,13 @@ const renderTableComponent = (component: any, data: Record<string, any>): React.
 };
 
 // 将组件渲染为 HTML 字符串（用于打印）
-const renderComponentToHTML = (component: any, data: Record<string, any>): string => {
+const renderComponentToHTML = (
+  component: any,
+  data: Record<string, any>,
+  /** 预生成的二维码/条形码 SVG，key 为 `${组件id}::${记录id}` */
+  codeSvgs?: Map<string, string>,
+  recordKey?: string,
+): string => {
   if (!component) return '';
 
   const { type, text, content, style = {}, textStyle = {} } = component;
@@ -1177,9 +1184,20 @@ const renderComponentToHTML = (component: any, data: Record<string, any>): strin
       }
       return `<div style="${styleStr}">[表格]</div>`;
     case 'qrcode':
-      return `<div style="${styleStr}">QR</div>`;
-    case 'barcode':
-      return `<div style="${styleStr}">||||||||||</div>`;
+    case 'barcode': {
+      const codeContent = replaceVariables(String(content || ''), data);
+      const svg = recordKey ? codeSvgs?.get(`${component.id}::${recordKey}`) : undefined;
+      if (svg) {
+        return `<div style="${styleStr};display:flex;align-items:center;justify-content:center;">${svg}</div>`;
+      }
+      // 内容为空或格式不合法时退化为文本，避免打印出空白
+      const label = component.type === 'qrcode' ? '二维码' : '条形码';
+      const safeContent = String(codeContent || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      return `<div style="${styleStr};display:flex;align-items:center;justify-content:center;font-size:10px;color:#64748b;">${label}: ${safeContent}</div>`;
+    }
     case 'checkbox': {
       const checkboxSize = Math.max(10, Math.min(Number(component.size) || 24, 120));
       const justify =
@@ -1297,7 +1315,8 @@ const renderComponent = (component: any, data: Record<string, any>, fieldTypeMap
           {processedContent}
         </div>
       );
-    case 'qrcode':
+    case 'qrcode': {
+      const qrcodeContent = replaceVariables(String(component.content || ''), data);
       return (
         <div
           key={id}
@@ -1311,22 +1330,12 @@ const renderComponent = (component: any, data: Record<string, any>, fieldTypeMap
             minHeight: '80px',
           }}
         >
-          <div
-            style={{
-              width: '100%',
-              height: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '12px',
-              color: '#64748b',
-            }}
-          >
-            QR
-          </div>
+          <QrCodeView content={qrcodeContent} size={component.size} />
         </div>
       );
-    case 'barcode':
+    }
+    case 'barcode': {
+      const barcodeContent = replaceVariables(String(component.content || ''), data);
       return (
         <div
           key={id}
@@ -1340,21 +1349,16 @@ const renderComponent = (component: any, data: Record<string, any>, fieldTypeMap
             minHeight: '50px',
           }}
         >
-          <div
-            style={{
-              width: '100%',
-              height: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '12px',
-              color: '#64748b',
-            }}
-          >
-            ||||||||||
-          </div>
+          <BarcodeView
+            content={barcodeContent}
+            format={component.format}
+            barWidth={component.barWidth}
+            height={component.height}
+            displayValue={component.displayValue}
+          />
         </div>
       );
+    }
     case 'checkbox': {
       const checkboxSize = Math.max(10, Math.min(Number(component.size) || 24, 120));
       return (
@@ -2913,7 +2917,7 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
   }, [selectedTemplate, selectedRecords.length]);
 
   // 处理批量打印（所有选中的记录）
-  const handleBatchPrint = useCallback(() => {
+  const handleBatchPrint = useCallback(async () => {
     if (!selectedTemplate) {
       toast.error('请先选择一个模板');
       return;
@@ -2929,6 +2933,17 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
     if (!printWindow) {
       toast.error('请允许弹窗以进行批量打印');
       return;
+    }
+
+    // 批量打印输出的是纯 HTML，拿不到 React 画布，先把二维码/条形码生成为内联 SVG
+    const batchComponents = selectedTemplate.data?.components || [];
+    const codeSvgs = new Map<string, string>();
+    for (const record of selectedRecords) {
+      for (const comp of batchComponents) {
+        if (comp.type !== 'qrcode' && comp.type !== 'barcode') continue;
+        const svg = await buildCodeSvg(comp, record.data);
+        if (svg) codeSvgs.set(`${comp.id}::${record.id}`, svg);
+      }
     }
 
     // 根据排版方式生成打印内容
@@ -2963,7 +2978,7 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
               gap: 12px;
             ">
               ${components.map((comp: any) => {
-                const html = renderComponentToHTML(comp, record.data);
+                const html = renderComponentToHTML(comp, record.data, codeSvgs, record.id);
                 return html;
               }).join('')}
             </div>
@@ -2996,7 +3011,7 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
                     align-content: flex-start;
                     gap: 12px;
                   ">
-                    ${components.map((comp: any) => renderComponentToHTML(comp, record.data)).join('')}
+                    ${components.map((comp: any) => renderComponentToHTML(comp, record.data, codeSvgs, record.id)).join('')}
                   </div>
                 </div>
               `;
@@ -3034,7 +3049,7 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
                     align-content: flex-start;
                     gap: 8px;
                   ">
-                    ${components.map((comp: any) => renderComponentToHTML(comp, record.data)).join('')}
+                    ${components.map((comp: any) => renderComponentToHTML(comp, record.data, codeSvgs, record.id)).join('')}
                   </div>
                 </div>
               `).join('')}

@@ -146,6 +146,12 @@ export interface BarcodeCanvasNode extends BaseCanvasNode {
   type: 'barcode';
   content: string;
   format: string;
+  /** 单条宽度(px)，默认 2 */
+  barWidth?: number;
+  /** 条码高度(px)，默认 50 */
+  height?: number;
+  /** 是否在条码下方显示内容文本，默认 true */
+  displayValue?: boolean;
 }
 
 // 二维码组件节点

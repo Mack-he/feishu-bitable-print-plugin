@@ -75,15 +75,13 @@ import { CanvasComponentNode } from '@/types/editor';
 import { useEditorStore } from '@/store/editorStore';
 import { Button } from '@/components/ui/button';
 import { Copy, Pencil, Trash2 } from 'lucide-react';
-import { parseVariables } from '@/utils/variableParser';
 import { VariableTextRenderer } from '@/components/VariableTextRenderer';
 import { VARIABLE_CHIP_STYLES } from '@/utils/smartVariableRenderer';
 import { InsertAttachmentDialog } from '@/components/editor/variables/InsertAttachmentDialog';
 import { AttachmentVariableConfig } from '@/components/editor/variables/AttachmentVariable';
 import { extractVariables } from '@/utils/variableParser';
 import { toast } from 'sonner';
-import QRCode from 'qrcode';
-import JsBarcode from 'jsbarcode';
+import { QrCodeView, BarcodeView } from './CodeViews';
 import { HoverToolbar } from '../table/HoverToolbar';
 import { RowActionMenu } from '../table/RowActionMenu';
 import { ColumnActionMenu } from '../table/ColumnActionMenu';
@@ -1568,38 +1566,7 @@ export function CanvasComponent({ component, isSelected, onSelect }: CanvasCompo
     }
   }, [component.id, component.type, (component as any).tableConfig?.cells, tableCellEditing.isEditing, tableCellEditing.tableId, tableCellEditing.rowIndex, tableCellEditing.colIndex]);
 
-  // 生成二维码
-  useEffect(() => {
-    if (component.type === 'qrcode' && canvasRef.current) {
-      const qrcodeComponent = component as any;
-      // 🔥 使用变量替换后的内容生成二维码
-      const content = parseVariables(qrcodeComponent.content || '', previewRecord, fields);
-      QRCode.toCanvas(canvasRef.current, content, {
-        width: Math.min(qrcodeComponent.size || 150, 200),
-        margin: 1,
-      }).catch(console.error);
-    }
-  }, [component, previewRecord, fields]);
-
-  // 生成条形码
-  useEffect(() => {
-    if (component.type === 'barcode' && canvasRef.current) {
-      const barcodeComponent = component as any;
-      try {
-        canvasRef.current.innerHTML = '';
-        // 🔥 使用变量替换后的内容生成条形码
-        const content = parseVariables(barcodeComponent.content || '', previewRecord, fields);
-        JsBarcode(canvasRef.current, content, {
-          format: barcodeComponent.format || 'CODE128',
-          width: 2,
-          height: 50,
-          displayValue: true,
-        });
-      } catch (e) {
-        console.error('Barcode generation error:', e);
-      }
-    }
-  }, [component, previewRecord, fields]);
+  // 二维码 / 条形码统一交给 CodeViews 渲染（与打印预览保持同一实现）
 
   // 辅助函数：生成列标（A, B, C... AA, AB...）
   const getColumnLabel = (index: number): string => {
@@ -2638,27 +2605,31 @@ export function CanvasComponent({ component, isSelected, onSelect }: CanvasCompo
 
       case 'qrcode':
         const qrcodeComp = component as any;
-        // 🔥 二维码内容也进行变量替换
-        const qrcodeContent = parseVariables(qrcodeComp.content || '二维码内容', previewRecord, fields);
         return (
           <div className="w-full flex flex-col items-center justify-center p-4">
-            <canvas ref={canvasRef} />
-            <p className="text-xs text-muted-foreground mt-2">
-              {qrcodeContent}
-            </p>
+            <QrCodeView
+              content={qrcodeComp.content}
+              size={qrcodeComp.size}
+              record={previewRecord}
+              fields={fields}
+              showContent
+            />
           </div>
         );
 
       case 'barcode':
         const barcodeComp = component as any;
-        // 🔥 条形码内容也进行变量替换
-        const barcodeContent = parseVariables(barcodeComp.content || '条形码内容', previewRecord, fields);
         return (
           <div className="w-full flex flex-col items-center justify-center p-4">
-            <canvas ref={canvasRef} />
-            <p className="text-xs text-muted-foreground mt-2">
-              {barcodeContent}
-            </p>
+            <BarcodeView
+              content={barcodeComp.content}
+              format={barcodeComp.format}
+              barWidth={barcodeComp.barWidth}
+              height={barcodeComp.height}
+              displayValue={barcodeComp.displayValue}
+              record={previewRecord}
+              fields={fields}
+            />
           </div>
         );
 

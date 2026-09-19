@@ -1119,12 +1119,18 @@ export function EditorPage({ onExit }: EditorPageProps) {
     // 颜色变化处理
   }, []);
 
-  // 智能聚焦：选中组件时自动切换到数据源面板
+  // 智能聚焦：选中组件时自动切到该组件真正能改东西的面板
   useEffect(() => {
     if (selectedComponentId) {
       const selectedComponent = components.find(c => c.id === selectedComponentId);
-      if (selectedComponent && (selectedComponent.type === 'text' || selectedComponent.type === 'table')) {
+      if (!selectedComponent) return;
+
+      if (selectedComponent.type === 'text' || selectedComponent.type === 'table') {
+        // 文本/表格：变量面板
         setActiveTab('data');
+      } else if (selectedComponent.type === 'qrcode' || selectedComponent.type === 'barcode') {
+        // 二维码/条形码：内容、尺寸、格式都在「设置」里
+        setActiveTab('settings');
       }
     }
   }, [selectedComponentId, components, setActiveTab]);
