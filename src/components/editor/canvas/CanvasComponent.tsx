@@ -9,7 +9,8 @@ const AutoResizingTextarea = ({
   onClick, 
   onKeyDown,
   onPaste,
-  style
+  style,
+  textareaRef: externalTextareaRef,
 }: { 
   value: string;
   onChange: (value: string) => void;
@@ -17,8 +18,10 @@ const AutoResizingTextarea = ({
   onKeyDown: (e: React.KeyboardEvent) => void;
   onPaste?: (e: React.ClipboardEvent) => void;
   style?: React.CSSProperties;
+  textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
 }) => {
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const internalRef = useRef<HTMLTextAreaElement>(null);
+  const textareaRef = externalTextareaRef ?? internalRef;
 
   // 处理点击事件，确保阻止冒泡
   const handleClick = useCallback((e: React.MouseEvent) => {
@@ -245,6 +248,7 @@ export function CanvasComponent({ component, isSelected, onSelect }: CanvasCompo
   const [editContent, setEditContent] = useState('');
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const cellTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   
   // 附件变量弹窗状态
   const [attachmentDialogOpen, setAttachmentDialogOpen] = useState(false);
@@ -330,7 +334,27 @@ export function CanvasComponent({ component, isSelected, onSelect }: CanvasCompo
   }, [fields, fieldTypeMap]);
   
   const textComponentRef = useRef<HTMLDivElement>(null);
-  
+
+  // 在光标处插入文本
+  const insertTextAtCursor = useCallback((text: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      // 如果没有光标位置，追加到末尾
+      setEditContent((prev) => prev + text);
+      return;
+    }
+    const start = textarea.selectionStart ?? editContent.length;
+    const end = textarea.selectionEnd ?? editContent.length;
+    const newContent = editContent.substring(0, start) + text + editContent.substring(end);
+    setEditContent(newContent);
+    // 恢复光标位置到插入文本之后
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const pos = start + text.length;
+      textarea.setSelectionRange(pos, pos);
+    });
+  }, [editContent]);
+
   // 组件容器 ref - 用于检测点击外部
   const componentContainerRef = useRef<HTMLDivElement>(null);
   
@@ -357,6 +381,11 @@ export function CanvasComponent({ component, isSelected, onSelect }: CanvasCompo
     endCol: null,
     isSelecting: false,
   });
+
+  // 选择状态的实时快照：document 级监听器常驻整个表格编辑期间，
+  // 只能通过 ref 读最新值，否则监听器闭包到挂载时的旧状态
+  const cellSelectionRef = useRef(cellSelection);
+  cellSelectionRef.current = cellSelection;
   
   // 行/列操作菜单的悬停状态
   const [hoveredRowIndex, setHoveredRowIndex] = useState<number | null>(null);
@@ -495,45 +524,66 @@ export function CanvasComponent({ component, isSelected, onSelect }: CanvasCompo
     if (!isCurrentTableEditing) {
       return;
     }
-    
-    // 如果还没有开始选择，但鼠标已经移动，则标记为开始选择
-    if (!cellSelection.isSelecting && cellSelection.startRow !== null) {
-      setCellSelection(prev => ({
-        ...prev,
-        isSelecting: true,
-      }));
-    }
-    
-    if (!cellSelection.isSelecting) {
+    // 只有按下鼠标后（startRow 已设置）拖过格子才会扩大选择范围
+    if (cellSelection.startRow === null) {
       return;
     }
-    
+    // 一次原子更新：翻转拖动标记并更新终点，避免闭包里读到旧的 isSelecting
     setCellSelection(prev => ({
       ...prev,
+      isSelecting: true,
       endRow: rowIndex,
       endCol: colIndex,
     }));
   };
 
-  // 全局鼠标移动监听 - 处理拖拽选择到单元格外部的情况
-  useEffect(() => {
-    if (!isCurrentTableEditing || !cellSelection.isSelecting || !tableDataRef.current) {
-      return;
+  // 结束一次选择：把当前选择范围写回 store，并重置本地选择状态
+  // （重置很重要：startRow 残留会让后续单纯 hover 也被当成拖拽）
+  const finishCellSelection = () => {
+    if (!isCurrentTableEditing) return;
+    const tableComp = component as any;
+    const selectedIds =
+      cellSelection.startRow !== null && tableComp.tableConfig?.cells
+        ? getSelectedCellIds(tableComp)
+        : [];
+
+    setCellSelection({
+      startRow: null,
+      startCol: null,
+      endRow: null,
+      endCol: null,
+      isSelecting: false,
+    });
+
+    if (selectedIds.length > 0) {
+      setTableEditing({
+        selectedCells: selectedIds,
+      });
     }
+  };
+
+  // 全局鼠标监听：在整个表格编辑期间常驻，处理拖放到格子外部、
+  // 以及按下移动过程中没有触发格子 mouseEnter 的情况
+  useEffect(() => {
+    if (!isCurrentTableEditing) return;
 
     const handleGlobalMouseMove = (e: MouseEvent) => {
+      const sel = cellSelectionRef.current;
+      if (sel.startRow === null) return;
+
       // 通过 elementFromPoint 找到当前鼠标位置的单元格
       const elem = document.elementFromPoint(e.clientX, e.clientY);
       if (!elem) return;
-      
-      // 查找有 data-row 和 data-col 属性的元素
+
       const cellElem = elem.closest('[data-row][data-col]');
       if (cellElem) {
         const row = parseInt(cellElem.getAttribute('data-row') || '0', 10);
         const col = parseInt(cellElem.getAttribute('data-col') || '0', 10);
-        
+        if (sel.endRow === row && sel.endCol === col && sel.isSelecting) return;
+
         setCellSelection(prev => ({
           ...prev,
+          isSelecting: true,
           endRow: row,
           endCol: col,
         }));
@@ -541,23 +591,39 @@ export function CanvasComponent({ component, isSelected, onSelect }: CanvasCompo
     };
 
     const handleGlobalMouseUp = () => {
-      if (cellSelection.isSelecting && tableDataRef.current) {
-        setCellSelection(prev => ({
-          ...prev,
-          isSelecting: false,
-        }));
-        
-        // 更新 store 中的选中单元格
-        const selectedIds = getSelectedCellIds(tableDataRef.current.tableComp);
-        
-        if (selectedIds.length > 0) {
-          setTableEditing({
-            selectedCells: selectedIds,
-          });
+      if (!tableDataRef.current) return;
+
+      // 用 ref 快照计算选择范围，避免闭包过期
+      const tableComp = tableDataRef.current.tableComp;
+      const sel = cellSelectionRef.current;
+      const selectedIds: string[] = [];
+      if (tableComp.tableConfig?.cells && sel.startRow !== null && sel.startCol !== null) {
+        const minRow = Math.min(sel.startRow, sel.endRow ?? sel.startRow);
+        const maxRow = Math.max(sel.startRow, sel.endRow ?? sel.startRow);
+        const minCol = Math.min(sel.startCol, sel.endCol ?? sel.startCol);
+        const maxCol = Math.max(sel.startCol, sel.endCol ?? sel.startCol);
+        for (let row = minRow; row <= maxRow; row++) {
+          for (let col = minCol; col <= maxCol; col++) {
+            selectedIds.push(tableComp.tableConfig.cells[row]?.[col]?.id || `cell-${row}-${col}`);
+          }
         }
       }
+
+      setCellSelection({
+        startRow: null,
+        startCol: null,
+        endRow: null,
+        endCol: null,
+        isSelecting: false,
+      });
       tableDataRef.current = null;
-      mouseDownPositionRef.current = null;
+
+      if (selectedIds.length > 0) {
+        setTableEditing({
+          selectedCells: selectedIds,
+        });
+      }
+      // 不清除 mouseDownPositionRef，让 click 事件能判断是否是拖拽
     };
 
     document.addEventListener('mousemove', handleGlobalMouseMove);
@@ -567,50 +633,18 @@ export function CanvasComponent({ component, isSelected, onSelect }: CanvasCompo
       document.removeEventListener('mousemove', handleGlobalMouseMove);
       document.removeEventListener('mouseup', handleGlobalMouseUp);
     };
-  }, [isCurrentTableEditing, cellSelection.isSelecting, getSelectedCellIds, setTableEditing]);
+  }, [isCurrentTableEditing, setTableEditing]);
 
   // 处理单元格鼠标释放
   const handleCellMouseUp = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!isCurrentTableEditing) return;
-    
-    if (cellSelection.isSelecting) {
-      setCellSelection(prev => ({
-        ...prev,
-        isSelecting: false,
-      }));
-      
-      // 更新 store 中的选中单元格
-      const tableComp = component as any;
-      const selectedIds = getSelectedCellIds(tableComp);
-      if (selectedIds.length > 0) {
-        setTableEditing({
-          selectedCells: selectedIds,
-        });
-      }
-    }
+    finishCellSelection();
   };
 
   // 处理鼠标离开表格
   const handleTableMouseLeave = (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!isCurrentTableEditing) return;
-    
-    if (cellSelection.isSelecting) {
-      setCellSelection(prev => ({
-        ...prev,
-        isSelecting: false,
-      }));
-      
-      // 更新 store 中的选中单元格
-      const tableComp = component as any;
-      const selectedIds = getSelectedCellIds(tableComp);
-      if (selectedIds.length > 0) {
-        setTableEditing({
-          selectedCells: selectedIds,
-        });
-      }
-    }
+    finishCellSelection();
   };
 
   // 文本组件编辑
@@ -1888,25 +1922,58 @@ export function CanvasComponent({ component, isSelected, onSelect }: CanvasCompo
                       }}
                       onMouseDown={(e) => handleCellMouseDown(rowIndex, colIndex, e)}
                       onMouseEnter={(e) => {
-                        // 只有在已经开始拖动选择的情况下才处理鼠标进入
-                        if (cellSelection.isSelecting && cellSelection.startRow !== null) {
+                        // 按下鼠标拖过格子时扩大选择范围；
+                        // 第一个进入的格子由 handleCellMouseMove 内部开启拖动标记
+                        if (cellSelection.startRow !== null) {
                           handleCellMouseMove(rowIndex, colIndex, e);
                         }
                       }}
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (!isCurrentTableEditing) return;
-                        
+
+                        // 【修复】表格未进入编辑状态时，单击任意单元格（含合并单元格）
+                        // 自动进入表格编辑并选中该格。此前此处直接 return，
+                        // 单元格点击成为"死区"（onMouseDown 也 stopPropagation），
+                        // 整块表格表现为"点不动"，合并区域尤为明显。
+                        if (!isCurrentTableEditing) {
+                          selectComponent(component.id);
+                          setTableEditing({
+                            isEditing: true,
+                            tableId: component.id,
+                            selectedCells: [cellId],
+                          });
+                          setTableCellEditing({
+                            isEditing: true,
+                            tableId: component.id,
+                            cellId,
+                            rowIndex,
+                            colIndex,
+                          });
+                          return;
+                        }
+
+                        // 如果是拖拽选择结束（鼠标移动了超过阈值），不进入编辑模式
+                        const startPos = mouseDownPositionRef.current;
+                        if (startPos) {
+                          const dx = Math.abs(e.clientX - startPos.x);
+                          const dy = Math.abs(e.clientY - startPos.y);
+                          mouseDownPositionRef.current = null;
+                          if (dx > 5 || dy > 5) {
+                            // 拖拽选择，不进入编辑
+                            return;
+                          }
+                        }
+
                         // 检查当前单元格是否已经在编辑中
-                        const isCurrentCellAlreadyEditing = tableCellEditing.isEditing && 
+                        const isCurrentCellAlreadyEditing = tableCellEditing.isEditing &&
                           tableCellEditing.tableId === component.id &&
                           tableCellEditing.cellId === cellId;
-                        
+
                         // 如果已经在编辑中，不做任何操作
                         if (isCurrentCellAlreadyEditing) {
                           return;
                         }
-                        
+
                         // 直接进入当前单元格编辑模式（会自动关闭其他单元格的编辑）
                         setTableEditing({
                           selectedCells: [cellId],
@@ -2164,47 +2231,74 @@ export function CanvasComponent({ component, isSelected, onSelect }: CanvasCompo
 
                       // 当前单元格处于编辑状态 - 显示 textarea
                       if (isCurrentCellEditing) {
+                        const insertCellText = (symbol: string) => {
+                          const ta = cellTextareaRef.current;
+                          const cur = cellContent || '';
+                          if (ta) {
+                            const start = ta.selectionStart ?? cur.length;
+                            const end = ta.selectionEnd ?? cur.length;
+                            handleTableCellChange(rowIndex, colIndex, cur.substring(0, start) + symbol + cur.substring(end));
+                            requestAnimationFrame(() => {
+                              ta.focus();
+                              const pos = start + symbol.length;
+                              ta.setSelectionRange(pos, pos);
+                            });
+                          } else {
+                            handleTableCellChange(rowIndex, colIndex, cur + symbol);
+                          }
+                        };
                         return (
-                          <AutoResizingTextarea
-                            value={cellContent || ''}
-                            onChange={(value) => handleTableCellChange(rowIndex, colIndex, value)}
-                            onClick={(e) => e.stopPropagation()}
-                            onKeyDown={(e) => {
-                              // Escape 退出单元格编辑
-                              if (e.key === 'Escape') {
-                                e.preventDefault();
-                                setTableCellEditing({
-                                  isEditing: false,
-                                  tableId: null,
-                                  cellId: null,
-                                  rowIndex: null,
-                                  colIndex: null,
-                                });
-                              }
-                              // Enter 保存并退出（Shift+Enter 换行）
-                              if (e.key === 'Enter' && !e.shiftKey) {
-                                e.preventDefault();
-                                setTableCellEditing({
-                                  isEditing: false,
-                                  tableId: null,
-                                  cellId: null,
-                                  rowIndex: null,
-                                  colIndex: null,
-                                });
-                              }
-                            }}
-                            onPaste={handleCellPaste(rowIndex, colIndex)}
-                            style={{
-                              fontSize: `${cellStyle.fontSize || styleConfig.fontSize}px`,
-                              fontWeight: cellStyle.bold ? 'bold' : 'normal',
-                              fontStyle: cellStyle.italic ? 'italic' : 'normal',
-                              color: cellStyle.color || '#000000',
-                              backgroundColor: 'transparent',
-                              textAlign: cellStyle.align || 'left',
-                              lineHeight: cellStyle.lineHeight || styleConfig.lineHeight,
-                              textDecoration: cellStyle.underline ? 'underline' : cellStyle.textDecoration || 'none',
-                            }}
-                          />
+                          <div className="relative">
+                            {/* 单元格编辑浮动工具栏 */}
+                            <div
+                              className="absolute -top-7 left-0 z-20 flex items-center gap-0.5 rounded border bg-white px-1 shadow-md"
+                              onMouseDown={(e) => e.preventDefault()}
+                            >
+                              <button type="button" title="插入空复选框" className="rounded px-1 text-xs hover:bg-gray-100" onClick={() => insertCellText('□')}>□</button>
+                              <button type="button" title="插入勾选复选框" className="rounded px-1 text-xs hover:bg-gray-100" onClick={() => insertCellText('☑')}>☑</button>
+                            </div>
+                            <AutoResizingTextarea
+                              textareaRef={cellTextareaRef}
+                              value={cellContent || ''}
+                              onChange={(value) => handleTableCellChange(rowIndex, colIndex, value)}
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                // Escape 退出单元格编辑
+                                if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  setTableCellEditing({
+                                    isEditing: false,
+                                    tableId: null,
+                                    cellId: null,
+                                    rowIndex: null,
+                                    colIndex: null,
+                                  });
+                                }
+                                // Enter 保存并退出（Shift+Enter 换行）
+                                if (e.key === 'Enter' && !e.shiftKey) {
+                                  e.preventDefault();
+                                  setTableCellEditing({
+                                    isEditing: false,
+                                    tableId: null,
+                                    cellId: null,
+                                    rowIndex: null,
+                                    colIndex: null,
+                                  });
+                                }
+                              }}
+                              onPaste={handleCellPaste(rowIndex, colIndex)}
+                              style={{
+                                fontSize: `${cellStyle.fontSize || styleConfig.fontSize}px`,
+                                fontWeight: cellStyle.bold ? 'bold' : 'normal',
+                                fontStyle: cellStyle.italic ? 'italic' : 'normal',
+                                color: cellStyle.color || '#000000',
+                                backgroundColor: 'transparent',
+                                textAlign: cellStyle.align || 'left',
+                                lineHeight: cellStyle.lineHeight || styleConfig.lineHeight,
+                                textDecoration: cellStyle.underline ? 'underline' : cellStyle.textDecoration || 'none',
+                              }}
+                            />
+                          </div>
                         );
                       }
 
@@ -2275,7 +2369,46 @@ export function CanvasComponent({ component, isSelected, onSelect }: CanvasCompo
               }}
               onDoubleClick={(e) => e.stopPropagation()}
             >
+              {/* 文本编辑浮动工具栏：插入复选框符号 */}
+              <div
+                className="absolute -top-9 left-0 z-10 flex items-center gap-1 rounded-md border bg-white px-1.5 py-0.5 shadow-md"
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                <button
+                  type="button"
+                  title="插入空复选框 □"
+                  className="rounded px-1.5 py-0.5 text-sm hover:bg-gray-100"
+                  onClick={() => insertTextAtCursor('□')}
+                >
+                  □
+                </button>
+                <button
+                  type="button"
+                  title="插入勾选复选框 ☑"
+                  className="rounded px-1.5 py-0.5 text-sm hover:bg-gray-100"
+                  onClick={() => insertTextAtCursor('☑')}
+                >
+                  ☑
+                </button>
+                <button
+                  type="button"
+                  title="插入空心圆 ○"
+                  className="rounded px-1.5 py-0.5 text-sm hover:bg-gray-100"
+                  onClick={() => insertTextAtCursor('○')}
+                >
+                  ○
+                </button>
+                <button
+                  type="button"
+                  title="插入实心圆 ●"
+                  className="rounded px-1.5 py-0.5 text-sm hover:bg-gray-100"
+                  onClick={() => insertTextAtCursor('●')}
+                >
+                  ●
+                </button>
+              </div>
               <AutoResizingTextarea
+                textareaRef={textareaRef}
                 value={editContent}
                 onChange={(value) => {
                   setEditContent(value);
@@ -2544,6 +2677,38 @@ export function CanvasComponent({ component, isSelected, onSelect }: CanvasCompo
             />
           </div>
         );
+
+      case 'checkbox': {
+        const checkboxComp = component as any;
+        const checkboxSize = Math.max(10, Math.min(Number(checkboxComp.size) || 24, 120));
+        return (
+          <div
+            className="w-full p-2"
+            style={{
+              display: 'flex',
+              justifyContent:
+                checkboxComp.align === 'center' ? 'center' : checkboxComp.align === 'right' ? 'flex-end' : 'flex-start',
+            }}
+          >
+            <div
+              style={{
+                width: checkboxSize,
+                height: checkboxSize,
+                minWidth: checkboxSize,
+                border: `${checkboxComp.borderWidth || 1.5}px solid ${checkboxComp.borderColor || '#000000'}`,
+                borderRadius: 2,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: Math.round(checkboxSize * 0.72),
+                lineHeight: 1,
+              }}
+            >
+              {checkboxComp.checked ? '✓' : ''}
+            </div>
+          </div>
+        );
+      }
 
       case 'heading':
       case 'paragraph':

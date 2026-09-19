@@ -37,15 +37,30 @@ export async function GET(request: Request) {
       }
     }
 
+    const allSerialized = visible.map((item) =>
+      serializeTemplate(item.template, item.access, {
+        source: item.source,
+        ownerName: item.ownerName,
+        publishRequestStatus: requestStatusByTemplate.get(item.template.id) ?? null,
+      })
+    );
+
+    // 分页
+    const url = new URL(request.url);
+    const page = Math.max(1, parseInt(url.searchParams.get('page') || '1', 10) || 1);
+    const pageSize = 5;
+    const total = allSerialized.length;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const start = (page - 1) * pageSize;
+    const pageData = allSerialized.slice(start, start + pageSize);
+
     return NextResponse.json({
       success: true,
-      data: visible.map((item) =>
-        serializeTemplate(item.template, item.access, {
-          source: item.source,
-          ownerName: item.ownerName,
-          publishRequestStatus: requestStatusByTemplate.get(item.template.id) ?? null,
-        })
-      ),
+      data: pageData,
+      total,
+      page,
+      pageSize,
+      totalPages,
     });
   } catch (error) {
     console.error('[Templates API] 获取模板列表错误:', error);
@@ -69,6 +84,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: '模板名称和数据不能为空' }, { status: 400 });
     }
 
+    // 确保 data 是有效的 JSON 字符串（Drizzle json 列需要字符串而非对象）
+    const dataJson = typeof data === 'string' ? data : JSON.stringify(data);
+
     const now = new Date();
     const [{ id }] = await db
       .insert(templates)
@@ -77,7 +95,7 @@ export async function POST(request: Request) {
         name,
         description: description || null,
         thumbnail: thumbnail || null,
-        data,
+        data: dataJson as any,
         isPublic: isPublic || false,
         visibility: isPublic ? 'public' : 'private',
         status: 'active',
@@ -99,10 +117,13 @@ export async function POST(request: Request) {
         canCopy: true,
       }, { source: 'mine' }),
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('[Templates API] 创建模板错误:', error);
+    // 提取 MySQL 原始错误信息
+    const mysqlErr = error?.cause?.sqlMessage || error?.cause?.message || error?.sqlMessage || error?.message || '创建模板失败';
+    const mysqlCode = error?.cause?.code || error?.code || '';
     return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : '创建模板失败' },
+      { success: false, error: mysqlCode ? `[${mysqlCode}] ${mysqlErr}` : mysqlErr },
       { status: 500 }
     );
   }

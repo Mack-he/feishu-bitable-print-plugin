@@ -1,14 +1,16 @@
+'use client';
+
 import React, { useState } from 'react';
-import { 
-  Layout, 
-  Palette, 
+import {
+  Palette,
   Grid,
   Check as CheckIcon,
-  Square,
   Merge,
   Split,
+  PanelTop,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ToolbarShell, ToolbarGroup, ToolbarDivider, ToolbarButton } from '../ToolbarKit';
 import { BorderSettingsPanel } from './BorderSettingsPanel';
 import { AlignmentSettingsPanel } from './AlignmentSettingsPanel';
 
@@ -25,6 +27,8 @@ interface AdvancedToolbarProps {
   verticalAlign: 'top' | 'middle' | 'bottom';
   onColorChange: (colorType: 'text' | 'fill', color: string) => void;
   onFinishEdit: () => void;
+  /** 并入外部工具栏外壳时使用，不再自绘描边与投影 */
+  embedded?: boolean;
 }
 
 export const AdvancedToolbar: React.FC<AdvancedToolbarProps> = React.memo(({
@@ -39,119 +43,95 @@ export const AdvancedToolbar: React.FC<AdvancedToolbarProps> = React.memo(({
   onAlignmentChange,
   verticalAlign,
   onColorChange,
-  onFinishEdit
+  onFinishEdit,
+  embedded = false,
 }) => {
   const [showBorderPanel, setShowBorderPanel] = useState(false);
+
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-1.5">
-      <div className="flex items-center gap-0.5">
-        {/* 第一组：完成编辑 */}
-        <Button 
-          variant="default" 
-          size="icon" 
-          onClick={(e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            onFinishEdit();
-          }}
-          className="h-8 w-8 bg-blue-500 hover:bg-blue-600"
-          title="完成编辑"
-        >
-          <CheckIcon className="w-4 h-4" />
-        </Button>
-        
-        <div className="w-px h-5 bg-gray-200 mx-1" />
-        
-        {/* 第二组：合并单元格 */}
-        <Button 
-          variant="ghost" 
-          size="icon" 
+    <ToolbarShell variant={embedded ? 'plain' : 'panel'}>
+      {/* 完成编辑：表格编辑的收尾动作，作为工具条的视觉锚点 */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          onFinishEdit();
+        }}
+        className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg bg-primary px-2.5 text-xs font-medium text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring/40"
+        title="完成编辑"
+      >
+        <CheckIcon className="h-3.5 w-3.5" />
+        完成
+      </button>
+
+      <ToolbarDivider />
+
+      {/* 合并单元格 */}
+      <ToolbarGroup>
+        <ToolbarButton
           onClick={onMergeCells}
           disabled={selectedCellCount < 2}
-          className="h-8 w-8 disabled:opacity-50"
-          title="合并单元格"
+          title={selectedCellCount < 2 ? '请选择两个及以上单元格' : '合并单元格'}
         >
-          <Merge className="w-4 h-4" />
-        </Button>
-        
-        {/* 取消合并单元格 */}
-        <Button 
-          variant="ghost" 
-          size="icon" 
+          <Merge className="h-4 w-4" />
+        </ToolbarButton>
+
+        <ToolbarButton
           onClick={onUnmergeCells}
           disabled={!hasMergedCell}
-          className="h-8 w-8 disabled:opacity-50"
           title="取消合并单元格"
         >
-          <Split className="w-4 h-4" />
-        </Button>
-        
-        <div className="w-px h-5 bg-gray-200 mx-1" />
-        
-        {/* 第三组：表头表尾 */}
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          onClick={onOpenHeaderFooterDialog}
-          className="h-8 w-8"
-          title="表头表尾"
-        >
-          <Layout className="w-4 h-4" />
-        </Button>
-        
-        <div className="w-px h-5 bg-gray-200 mx-1" />
-        
-        {/* 第四组：边框 */}
-        <div className="relative">
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={() => setShowBorderPanel(!showBorderPanel)}
-            className="h-8 w-8"
-            title="边框"
-          >
-            <Grid className="w-4 h-4" />
-          </Button>
-          
-          {/* 边框设置面板 */}
-          {showBorderPanel && (
-            <div className="absolute top-full left-0 mt-1 z-50">
-              <BorderSettingsPanel
-                borderWidth={borderWidth}
-                onBorderChange={(type) => {
-                  onBorderChange(type);
-                  setShowBorderPanel(false);
-                }}
-                onBorderWidthChange={(width) => {
-                  onBorderWidthChange(width);
-                }}
-              />
-            </div>
-          )}
-        </div>
-        
-        <div className="w-px h-5 bg-gray-200 mx-1" />
-        
-        {/* 第五组：对齐 */}
-        <AlignmentSettingsPanel
-          verticalAlign={verticalAlign}
-          onAlignmentChange={onAlignmentChange}
-        />
-        
-        <div className="w-px h-5 bg-gray-200 mx-1" />
-        
-        {/* 第六组：颜色 */}
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          onClick={() => onColorChange('text', '#000000')}
-          className="h-8 w-8"
-          title="文字颜色"
-        >
-          <Palette className="w-4 h-4" />
-        </Button>
-      </div>
-    </div>
+          <Split className="h-4 w-4" />
+        </ToolbarButton>
+      </ToolbarGroup>
+
+      <ToolbarDivider />
+
+      {/* 表头表尾 */}
+      <ToolbarButton onClick={onOpenHeaderFooterDialog} title="表头表尾">
+        <PanelTop className="h-4 w-4" />
+      </ToolbarButton>
+
+      <ToolbarDivider />
+
+      {/* 边框 */}
+      <Popover open={showBorderPanel} onOpenChange={setShowBorderPanel}>
+        <PopoverTrigger asChild>
+          <ToolbarButton active={showBorderPanel} title="边框">
+            <Grid className="h-4 w-4" />
+          </ToolbarButton>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-52 p-1.5">
+          <BorderSettingsPanel
+            borderWidth={borderWidth}
+            onBorderChange={(type) => {
+              onBorderChange(type);
+              setShowBorderPanel(false);
+            }}
+            onBorderWidthChange={onBorderWidthChange}
+          />
+        </PopoverContent>
+      </Popover>
+
+      <ToolbarDivider />
+
+      {/* 垂直对齐 */}
+      <AlignmentSettingsPanel
+        verticalAlign={verticalAlign}
+        onAlignmentChange={onAlignmentChange}
+      />
+
+      <ToolbarDivider />
+
+      {/* 单元格颜色 */}
+      <ToolbarButton
+        onClick={() => onColorChange('text', '#000000')}
+        title="单元格颜色"
+      >
+        <Palette className="h-4 w-4" />
+      </ToolbarButton>
+    </ToolbarShell>
   );
 });
 

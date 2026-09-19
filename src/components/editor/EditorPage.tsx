@@ -37,6 +37,7 @@ import {
 } from 'lucide-react';
 import { TextToolbar } from './TextToolbar';
 import { AdvancedToolbar } from './table/AdvancedToolbar';
+import { ToolbarShell, ToolbarDivider } from './ToolbarKit';
 import { HeaderFooterSettingsDialog } from './dialogs/HeaderFooterSettingsDialog';
 import { ComponentTextStyle, TextCanvasNode } from '@/types/editor';
 import {
@@ -1261,7 +1262,7 @@ export function EditorPage({ onExit }: EditorPageProps) {
       <div className="h-screen flex flex-col bg-background">
         {/* 顶部工具栏 */}
         <header className="border-b bg-background/95 backdrop-blur z-50">
-          <div className="flex items-center justify-between px-4 py-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-4 py-2">
             {/* 左侧 */}
             <div className="flex items-center gap-4">
               <Button 
@@ -1296,6 +1297,55 @@ export function EditorPage({ onExit }: EditorPageProps) {
                 </Badge>
               ) : null}
             </div>
+
+            {/* 中部：表格编辑时，单元格样式工具栏 + 表格工具栏并入顶部这一行，省出下方空间 */}
+            {tableEditing.isEditing && (
+              <div className="flex min-w-[320px] flex-1 items-center justify-center">
+                {/* 两个工具栏共用一个外壳，换行时仍然是一条工具条，而不是两块浮起的卡片 */}
+                <ToolbarShell className="min-w-0 max-w-full">
+                  <TextToolbar
+                    embedded
+                    textStyle={getCurrentTableCellTextStyle()}
+                    onChange={updateTableCellTextStyle}
+                    onIncreaseFontSize={increaseTableCellFontSize}
+                    onDecreaseFontSize={decreaseTableCellFontSize}
+                  />
+                  <ToolbarDivider className="h-6" />
+                  <AdvancedToolbar
+                    embedded
+                    onMergeCells={handleMergeCells}
+                    onUnmergeCells={handleUnmergeCells}
+                    selectedCellCount={tableEditing.selectedCells.length}
+                    hasMergedCell={hasMergedCell}
+                    onOpenHeaderFooterDialog={handleOpenHeaderFooterDialog}
+                    onBorderChange={handleBorderChange}
+                    onBorderWidthChange={handleBorderWidthChange}
+                    borderWidth={currentEditingTable?.tableConfig?.borderWidth || 1}
+                    onAlignmentChange={handleAlignmentChange}
+                    verticalAlign={(() => {
+                      if (!currentEditingTable?.tableConfig?.cells) return 'middle';
+                      const cells = currentEditingTable.tableConfig.cells;
+
+                      // 获取第一个选中的单元格的对齐状态
+                      for (let row = 0; row < cells.length; row++) {
+                        for (let col = 0; col < cells[row].length; col++) {
+                          const cellId = cells[row][col]?.id || `cell-${row}-${col}`;
+                          if (tableEditing.selectedCells.includes(cellId)) {
+                            return cells[row][col]?.verticalAlign || 'middle';
+                          }
+                        }
+                      }
+                      return 'middle';
+                    })()}
+                    onColorChange={handleColorChange}
+                    onFinishEdit={() => {
+                      handleFinishEdit();
+                      handleHeaderFooterDialogClose();
+                    }}
+                  />
+                </ToolbarShell>
+              </div>
+            )}
 
             {/* 右侧 */}
             <div className="flex items-center gap-2">
@@ -1448,17 +1498,7 @@ export function EditorPage({ onExit }: EditorPageProps) {
           </div>
         )}
 
-        {/* 表格内容编辑工具栏 - 仅在编辑表格且选中单元格时显示 */}
-        {tableEditing.isEditing && (
-          <div className="border-b bg-background/95 backdrop-blur px-4 py-2">
-            <TextToolbar
-              textStyle={getCurrentTableCellTextStyle()}
-              onChange={updateTableCellTextStyle}
-              onIncreaseFontSize={increaseTableCellFontSize}
-              onDecreaseFontSize={decreaseTableCellFontSize}
-            />
-          </div>
-        )}
+        {/* 表格编辑时的单元格样式工具栏已并入顶部栏（见 header 中部），不再单独占用一行 */}
 
         {/* 主内容区 */}
         <div className="flex-1 flex overflow-hidden">
@@ -1529,43 +1569,6 @@ export function EditorPage({ onExit }: EditorPageProps) {
 
           {/* 右侧画布区 */}
           <main className="flex-1 overflow-auto bg-slate-100 dark:bg-slate-900">
-            {/* 表格编辑工具栏 - 仅在编辑表格时显示，在画布上方 */}
-            {tableEditing.isEditing && (
-              <div className="bg-background border-b px-4 py-2">
-                <AdvancedToolbar
-                  onMergeCells={handleMergeCells}
-                  onUnmergeCells={handleUnmergeCells}
-                  selectedCellCount={tableEditing.selectedCells.length}
-                  hasMergedCell={hasMergedCell}
-                  onOpenHeaderFooterDialog={handleOpenHeaderFooterDialog}
-                  onBorderChange={handleBorderChange}
-                  onBorderWidthChange={handleBorderWidthChange}
-                  borderWidth={currentEditingTable?.tableConfig?.borderWidth || 1}
-                  onAlignmentChange={handleAlignmentChange}
-                  verticalAlign={(() => {
-                    if (!currentEditingTable?.tableConfig?.cells) return 'middle';
-                    const cells = currentEditingTable.tableConfig.cells;
-                    
-                    // 获取第一个选中的单元格的对齐状态
-                    for (let row = 0; row < cells.length; row++) {
-                      for (let col = 0; col < cells[row].length; col++) {
-                        const cellId = cells[row][col]?.id || `cell-${row}-${col}`;
-                        if (tableEditing.selectedCells.includes(cellId)) {
-                          return cells[row][col]?.verticalAlign || 'middle';
-                        }
-                      }
-                    }
-                    return 'middle';
-                  })()}
-                  onColorChange={handleColorChange}
-                  onFinishEdit={() => {
-                    handleFinishEdit();
-                    handleHeaderFooterDialogClose();
-                  }}
-                />
-              </div>
-            )}
-
             {/* 表头表尾设置弹窗 */}
             {currentEditingTable && (
               <HeaderFooterSettingsDialog

@@ -124,6 +124,9 @@ export function UnifiedComponentRenderer({
     case 'image':
       return renderImageComponent(component);
     
+    case 'checkbox':
+      return renderCheckboxComponent(component);
+    
     default:
       return (
         <div className="text-gray-500 p-4">
@@ -729,6 +732,41 @@ function renderQrcodeComponent(component: CanvasComponentNode) {
   return (
     <div className="flex items-center justify-center">
       <div className="w-24 h-24 bg-gray-100 border border-gray-300" />
+    </div>
+  );
+}
+
+function renderCheckboxComponent(component: CanvasComponentNode) {
+  const checkbox = component as any;
+  const size = Math.max(10, Math.min(Number(checkbox.size) || 24, 120));
+  return (
+    <div
+      style={{
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: checkbox.align === 'center' ? 'center' : checkbox.align === 'right' ? 'flex-end' : 'flex-start',
+      }}
+    >
+      <div
+        style={{
+          width: size,
+          height: size,
+          minWidth: size,
+          border: `${checkbox.borderWidth || 1.5}px solid ${checkbox.borderColor || '#000000'}`,
+          borderRadius: 2,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: checkbox.borderColor || '#000000',
+          fontSize: Math.round(size * 0.72),
+          lineHeight: 1,
+          backgroundColor: 'transparent',
+          boxSizing: 'border-box',
+        }}
+      >
+        {checkbox.checked ? '✓' : ''}
+      </div>
     </div>
   );
 }

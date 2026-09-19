@@ -21,7 +21,7 @@ export const ColumnActionMenu: React.FC<ColumnActionMenuProps> = ({
 }) => {
   return (
     <div 
-      className={`absolute left-1/2 -translate-x-1/2 bg-white border border-gray-200 rounded-md shadow-lg p-1 flex flex-row gap-0.5 z-30 ${
+      className={`absolute left-1/2 -translate-x-1/2 w-max bg-popover text-popover-foreground border rounded-xl shadow-lg p-1 flex flex-row gap-0.5 z-30 ${
         position === 'top' ? 'bottom-full mb-1' : 'top-full mt-1'
       }`}
       onMouseDown={(e) => e.stopPropagation()}
@@ -31,7 +31,7 @@ export const ColumnActionMenu: React.FC<ColumnActionMenuProps> = ({
     >
       <button
         onClick={onAddLeft}
-        className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 rounded transition-colors"
+        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-xs text-foreground/80 transition-colors hover:bg-muted hover:text-foreground"
         title="在左侧插入列"
       >
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -42,20 +42,20 @@ export const ColumnActionMenu: React.FC<ColumnActionMenuProps> = ({
       
       <button
         onClick={onAddRight}
-        className="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-700 hover:bg-gray-100 rounded transition-colors"
+        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-xs text-foreground/80 transition-colors hover:bg-muted hover:text-foreground"
         title="在右侧插入列"
       >
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5v14M19 12h-10" />
         </svg>
         <span>右插列</span>
       </button>
       
-      <div className="w-px bg-gray-200 mx-0.5" />
+      <div className="mx-0.5 my-1 w-px shrink-0 bg-border" />
       
       <button
         onClick={onDelete}
-        className="flex items-center gap-1.5 px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded transition-colors"
+        className="flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-2 text-xs text-destructive transition-colors hover:bg-destructive/10"
         title="删除此列"
       >
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

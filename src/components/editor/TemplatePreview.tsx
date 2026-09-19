@@ -19,6 +19,7 @@ import { PAGE_SIZES, PageConfig } from '@/types/editor';
 import { feishuEnv } from '@/lib/feishu-env';
 import { onSelectionChange } from '@/lib/feishu-env';
 import { MixedContentRenderer, extractVariables, FieldTypeMap, type VariableType } from '@/components/editor/variables';
+import { formatCheckboxGlyphsHtml } from '@/components/BoxAwareText';
 
 
 interface TemplatePreviewProps {
@@ -925,7 +926,7 @@ const replaceVariablesToHTML = (text: string, data: Record<string, any>, textSty
   if (!text || typeof text !== 'string') return text;
 
   // 支持 [字段名]、[字段名:格式]、{{字段名}}、{{字段名:格式}}
-  return text.replace(/\[([^\]]+)(?::([^\]]+))?\]|\{\{([^}]+)(?::([^}]+))?\}\}/g, (match, bracketName, bracketFormat, braceName, braceFormat) => {
+  const replaced = text.replace(/\[([^\]]+)(?::([^\]]+))?\]|\{\{([^}]+)(?::([^}]+))?\}\}/g, (match, bracketName, bracketFormat, braceName, braceFormat) => {
     const varName = (bracketName || braceName)?.trim();
     if (!varName) return match;
     
@@ -947,6 +948,9 @@ const replaceVariablesToHTML = (text: string, data: Record<string, any>, textSty
     // 使用 formatFieldValueToHTML 格式化字段值，特别是流程字段的颜色样式
     return formatFieldValueToHTML(varName, originalValue, textStyle);
   });
+
+  // 打勾方框（□ ☐ ☑ ☒）统一渲染为内联正方形，避免字体字形在打印/PDF 时变形
+  return formatCheckboxGlyphsHtml(replaced);
 };
 
 // 渲染表格组件
@@ -1176,6 +1180,12 @@ const renderComponentToHTML = (component: any, data: Record<string, any>): strin
       return `<div style="${styleStr}">QR</div>`;
     case 'barcode':
       return `<div style="${styleStr}">||||||||||</div>`;
+    case 'checkbox': {
+      const checkboxSize = Math.max(10, Math.min(Number(component.size) || 24, 120));
+      const justify =
+        component.align === 'center' ? 'center' : component.align === 'right' ? 'flex-end' : 'flex-start';
+      return `<div style="${styleStr};display:flex;align-items:center;justify-content:${justify};"><div style="width:${checkboxSize}px;height:${checkboxSize}px;min-width:${checkboxSize}px;border:${component.borderWidth || 1.5}px solid ${component.borderColor || '#000000'};border-radius:2px;display:flex;align-items:center;justify-content:center;font-size:${Math.round(checkboxSize * 0.72)}px;line-height:1;box-sizing:border-box;">${component.checked ? '✓' : ''}</div></div>`;
+    }
     default:
       return `<div style="${styleStr}">${processedContent || processedText}</div>`;
   }
@@ -1345,6 +1355,38 @@ const renderComponent = (component: any, data: Record<string, any>, fieldTypeMap
           </div>
         </div>
       );
+    case 'checkbox': {
+      const checkboxSize = Math.max(10, Math.min(Number(component.size) || 24, 120));
+      return (
+        <div
+          key={id}
+          style={{
+            ...commonStyle,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: component.align === 'center' ? 'center' : component.align === 'right' ? 'flex-end' : 'flex-start',
+          }}
+        >
+          <div
+            style={{
+              width: checkboxSize,
+              height: checkboxSize,
+              minWidth: checkboxSize,
+              border: `${component.borderWidth || 1.5}px solid ${component.borderColor || '#000000'}`,
+              borderRadius: 2,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: Math.round(checkboxSize * 0.72),
+              lineHeight: 1,
+              boxSizing: 'border-box',
+            }}
+          >
+            {component.checked ? '✓' : ''}
+          </div>
+        </div>
+      );
+    }
     case 'container':
       return (
         <div key={id} style={commonStyle}>
@@ -1469,7 +1511,7 @@ const renderComponent = (component: any, data: Record<string, any>, fieldTypeMap
 };
 
 export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePreviewProps) {
-  const { templates, fetchTemplates, setCurrentTemplate } = useTemplateStore();
+  const { templates, fetchTemplates, setCurrentTemplate, currentPage, totalPages, totalCount } = useTemplateStore();
   const {
     records: storeRecords,
     currentIndex,
@@ -2589,25 +2631,35 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
   }, []);
 
   // 处理模板选择
-  const handleSelectTemplate = useCallback((template: Template) => {
-    setSelectedTemplate(template);
+  const handleSelectTemplate = useCallback(async (template: Template) => {
+    // 列表接口不返回 data，需要按需加载完整模板
+    let fullTemplate = template;
+    if (!template.data || Object.keys(template.data).length === 0) {
+      try {
+        fullTemplate = await useTemplateStore.getState().loadTemplateById(template.id);
+      } catch (e) {
+        console.error('[TemplatePreview] 加载模板详情失败:', e);
+        return;
+      }
+    }
+    setSelectedTemplate(fullTemplate);
     // 清空之前选中的数据和忽略列表（新模板上下文）
     setSelectedRecords([]);
     setIgnoredRecordIds(new Set());
     setAvailableRecords([]);
-    
+
     console.log('[TemplatePreview] 选择模板:', {
-      name: template.name,
-      id: template.id,
-      tableId: template.data?.tableId,
-      tableName: template.data?.tableName,
-      hasData: !!template.data,
+      name: fullTemplate.name,
+      id: fullTemplate.id,
+      tableId: fullTemplate.data?.tableId,
+      tableName: fullTemplate.data?.tableName,
+      hasData: !!fullTemplate.data,
     });
-    
+
     // 从模板数据中读取页面配置
-    if (template.data?.pageConfig) {
-      setLocalPageConfig(template.data.pageConfig);
-      console.log('[TemplatePreview] 从模板加载页面配置:', template.data.pageConfig);
+    if (fullTemplate.data?.pageConfig) {
+      setLocalPageConfig(fullTemplate.data.pageConfig);
+      console.log('[TemplatePreview] 从模板加载页面配置:', fullTemplate.data.pageConfig);
     } else {
       // 使用默认配置
       setLocalPageConfig({
@@ -2624,21 +2676,21 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
     }
     
     // 详细的调试信息
-    const components = template.data?.components || [];
-    const dataStr = template.data ? JSON.stringify(template.data, null, 2).slice(0, 3000) : '(empty)';
-    const componentsInfo = components.map((comp: any, idx: number) => 
+    const components = fullTemplate.data?.components || [];
+    const dataStr = fullTemplate.data ? JSON.stringify(fullTemplate.data, null, 2).slice(0, 3000) : '(empty)';
+    const componentsInfo = components.map((comp: any, idx: number) =>
       `[${idx}] type=${comp.type}, id=${comp.id}, content=${!!comp.content}, text=${!!comp.text}, textStyle=${!!comp.textStyle}, style=${!!comp.style}`
     ).join('\n');
-    
-    const pageConfigInfo = template.data?.pageConfig || { size: 'A4', orientation: 'portrait' };
+
+    const pageConfigInfo = fullTemplate.data?.pageConfig || { size: 'A4', orientation: 'portrait' };
     const pageSize = PAGE_SIZES[pageConfigInfo.size] || PAGE_SIZES.A4;
     const actualWidth = pageConfigInfo.orientation === 'portrait' ? pageSize.width : pageSize.height;
     const actualHeight = pageConfigInfo.orientation === 'portrait' ? pageSize.height : pageSize.width;
-    
-    const debugText = `选中模板: ${template.name}\n` +
-      `模板ID: ${template.id}\n` +
-      `有数据: ${!!template.data}\n` +
-      `数据类型: ${typeof template.data}\n` +
+
+    const debugText = `选中模板: ${fullTemplate.name}\n` +
+      `模板ID: ${fullTemplate.id}\n` +
+      `有数据: ${!!fullTemplate.data}\n` +
+      `数据类型: ${typeof fullTemplate.data}\n` +
       `组件数量: ${components.length}\n` +
       `页面尺寸: ${pageConfigInfo.size} ${pageConfigInfo.orientation === 'portrait' ? '纵向' : '横向'}\n` +
       `画布尺寸: ${actualWidth}mm × ${actualHeight}mm\n` +
@@ -2646,10 +2698,10 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
       `组件详情:\n${componentsInfo}\n\n` +
       `完整数据:\n${dataStr}`;
     setDebugInfo(debugText);
-    
+
     console.log('[TemplatePreview] 选中模板详情:', {
-      templateName: template.name,
-      templateId: template.id,
+      templateName: fullTemplate.name,
+      templateId: fullTemplate.id,
       hasData: !!template.data,
       componentCount: components.length,
       pageConfig: pageConfigInfo,
@@ -3200,7 +3252,7 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
             <Tabs defaultValue="templates" className="h-full flex flex-col">
               <TabsList className="grid w-full grid-cols-2 mx-4 mt-2 w-auto">
                 <TabsTrigger value="templates" className="text-xs">
-                  模板 ({templates.length})
+                  模板 ({totalCount})
                 </TabsTrigger>
                 <TabsTrigger value="data" className="text-xs">
                   数据 ({selectedRecords.length})
@@ -3281,6 +3333,34 @@ export function TemplatePreview({ baseId, tableId, onEditTemplate }: TemplatePre
                         <FileText className="h-12 w-12 mx-auto mb-2 opacity-50" />
                         <p className="text-sm">暂无模板</p>
                         <p className="text-xs mt-1">请在编辑器中创建模板</p>
+                      </div>
+                    )}
+
+                    {/* 分页控件 */}
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-between pt-3 border-t">
+                        <span className="text-xs text-gray-500">
+                          共 {totalCount} 条
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => fetchTemplates(currentPage - 1)}
+                            disabled={currentPage <= 1}
+                            className="px-2 py-1 text-xs border rounded disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+                          >
+                            上一页
+                          </button>
+                          <span className="text-xs text-gray-600">
+                            {currentPage} / {totalPages}
+                          </span>
+                          <button
+                            onClick={() => fetchTemplates(currentPage + 1)}
+                            disabled={currentPage >= totalPages}
+                            className="px-2 py-1 text-xs border rounded disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+                          >
+                            下一页
+                          </button>
+                        </div>
                       </div>
                     )}
                   </div>

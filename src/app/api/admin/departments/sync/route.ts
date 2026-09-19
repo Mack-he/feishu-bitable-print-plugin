@@ -43,6 +43,12 @@ export async function POST(request: Request) {
       `部门 ${result.departmentCount} 个`,
       `用户部门关系已更新 ${result.linkedUserCount} 人`,
     ];
+    const contact = result.contactUserSync;
+    if (contact?.permissionError) {
+      summary.push('通讯录人员未同步（权限不足）');
+    } else if (contact && contact.fetched > 0) {
+      summary.push(`通讯录人员 ${contact.fetched} 人（新增 ${contact.inserted}、更新 ${contact.updated}）`);
+    }
     if (result.deactivatedDepartmentCount > 0) {
       const names = result.deactivatedDepartments.map((item) => item.name).join('、');
       const suffix = result.deactivatedDepartmentCount > result.deactivatedDepartments.length ? ' 等' : '';

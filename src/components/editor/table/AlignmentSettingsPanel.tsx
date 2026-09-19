@@ -1,14 +1,15 @@
 'use client';
 
 import React from 'react';
-import { ArrowUpToLine, ArrowDownToLine, MoveVertical } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { ArrowUpToLine, ArrowDownToLine, MoveVertical, Check } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { ToolbarButton } from '../ToolbarKit';
+import { cn } from '@/lib/utils';
 
 type VerticalAlign = 'top' | 'middle' | 'bottom';
 
@@ -34,27 +35,26 @@ export const AlignmentSettingsPanel: React.FC<AlignmentSettingsPanelProps> = ({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button 
-          variant="ghost" 
-          size="icon" 
-          className="h-8 w-8"
-          title="对齐"
-        >
-          <CurrentIcon className="w-4 h-4" />
-        </Button>
+        <ToolbarButton title={`垂直对齐：${currentOption?.label ?? '垂直居中'}`}>
+          <CurrentIcon className="h-4 w-4" />
+        </ToolbarButton>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start">
+      <DropdownMenuContent align="start" className="w-36">
         {ALIGNMENT_OPTIONS.map((option) => {
           const Icon = option.icon;
+          const selected = option.value === verticalAlign;
           return (
             <DropdownMenuItem
               key={option.value}
-              onClick={() => onAlignmentChange(option.value)}
+              onSelect={() => onAlignmentChange(option.value)}
+              className={cn(
+                'gap-2 text-xs',
+                selected && 'bg-primary/10 font-medium text-primary',
+              )}
             >
-              <div className="flex items-center gap-2">
-                <Icon className="w-4 h-4" />
-                <span>{option.label}</span>
-              </div>
+              <Icon className="h-4 w-4" />
+              <span>{option.label}</span>
+              {selected && <Check className="ml-auto h-3.5 w-3.5" />}
             </DropdownMenuItem>
           );
         })}

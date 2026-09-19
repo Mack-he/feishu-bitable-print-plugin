@@ -15,6 +15,7 @@ import {
   Table2,
   GripVertical,
   AlignLeft,
+  SquareCheck,
 } from 'lucide-react';
 import { useDraggable } from '@dnd-kit/core';
 
@@ -35,6 +36,7 @@ const components: {
   { type: 'paragraph', name: '段落', icon: AlignLeft, description: '带首行缩进的段落', category: 'basic' },
   { type: 'table', name: '表格', icon: Table, description: '添加表格', category: 'basic' },
   { type: 'image', name: '图片', icon: Image, description: '添加图片', category: 'basic' },
+  { type: 'checkbox', name: '复选框', icon: SquareCheck, description: '打勾用的方格，可调大小', category: 'basic' },
   
   // 标识类
   { type: 'qrcode', name: '二维码', icon: QrCode, description: '生成二维码', category: 'code' },

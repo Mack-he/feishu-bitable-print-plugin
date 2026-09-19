@@ -87,7 +87,7 @@ export interface ComponentLayout {
 // 画布组件节点（网格布局 - v17.0）
 export interface BaseCanvasNode {
   id: string;
-  type: 'text' | 'heading' | 'paragraph' | 'list' | 'table' | 'image' | 'barcode' | 'qrcode' | 'line' | 'fieldContainer';
+  type: 'text' | 'heading' | 'paragraph' | 'list' | 'table' | 'image' | 'barcode' | 'qrcode' | 'line' | 'checkbox' | 'fieldContainer';
   width: number; // 保留兼容性
   height?: number;
   minHeight?: number;
@@ -163,6 +163,18 @@ export interface LineCanvasNode extends BaseCanvasNode {
   style: 'solid' | 'dashed' | 'dotted';
 }
 
+// 复选框组件节点（打勾用的方格框，保持正方形缩放）
+export interface CheckboxCanvasNode extends BaseCanvasNode {
+  type: 'checkbox';
+  /** 方格边长（px），调整大小时保持 1:1 正方形 */
+  size: number;
+  /** 是否已勾选（勾选时方框内显示 ✓） */
+  checked: boolean;
+  borderColor?: string;
+  borderWidth?: number;
+  align?: 'left' | 'center' | 'right';
+}
+
 // 字段容器组件节点 - 根据字段是否有值决定是否显示
 export interface FieldContainerCanvasNode extends BaseCanvasNode {
   type: 'fieldContainer';
@@ -185,6 +197,7 @@ export type CanvasComponentNode =
   | BarcodeCanvasNode 
   | QRCodeCanvasNode 
   | LineCanvasNode
+  | CheckboxCanvasNode
   | FieldContainerCanvasNode;
 
 // 画布状态（流式布局）
@@ -206,6 +219,7 @@ export type ComponentType =
   | 'qrcode'     // 二维码
   | 'barcode'    // 条形码
   | 'line'       // 水平线
+  | 'checkbox'   // 复选框（打勾方格）
   | 'freeElement' // 自由拖动元素（保留兼容）
   | 'article'    // 文章区块
   | 'autoTable'  // 自动表格
@@ -446,6 +460,7 @@ export const DEFAULT_COMPONENT_SIZES: Record<ComponentType, { width: number; hei
   qrcode: { width: 100, height: 80 },
   barcode: { width: 100, height: 50 },
   line: { width: 100, height: 2 },
+  checkbox: { width: 100, height: 40 },
   freeElement: { width: 100, height: 100 },
   article: { width: 100, height: 150 },
   autoTable: { width: 100, height: 200 },

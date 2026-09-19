@@ -83,9 +83,14 @@ interface TemplateStore {
   currentTemplate: Template | null;
   isLoading: boolean;
   error: string | null;
-  
+  // 分页
+  currentPage: number;
+  totalPages: number;
+  totalCount: number;
+  pageSize: number;
+
   // 从数据库加载模板
-  fetchTemplates: () => Promise<void>;
+  fetchTemplates: (page?: number) => Promise<void>;
   
   // 保存模板到数据库
   saveTemplate: (template: Omit<Template, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Template>;
@@ -108,6 +113,9 @@ interface TemplateStore {
 
   // 设置当前模板
   setCurrentTemplate: (template: Template | null) => void;
+
+  // 按 ID 加载完整模板（含 data）并设为当前模板
+  loadTemplateById: (id: number) => Promise<Template>;
   
   // 清除错误
   clearError: () => void;
@@ -118,8 +126,12 @@ export const useTemplateStore = create<TemplateStore>()((set) => ({
       currentTemplate: null,
       isLoading: false,
       error: null,
+      currentPage: 1,
+      totalPages: 1,
+      totalCount: 0,
+      pageSize: 5,
 
-      fetchTemplates: async () => {
+      fetchTemplates: async (page: number = 1) => {
         const token = useUserStore.getState().token;
         if (!token) {
           return;
@@ -127,7 +139,7 @@ export const useTemplateStore = create<TemplateStore>()((set) => ({
 
         set({ isLoading: true, error: null });
         try {
-          const response = await fetch('/api/templates', {
+          const response = await fetch(`/api/templates?page=${page}`, {
             headers: {
               'Authorization': `Bearer ${token}`,
             },
@@ -136,15 +148,21 @@ export const useTemplateStore = create<TemplateStore>()((set) => ({
           const result = await response.json();
           if (result.success) {
             const templates = result.data.map(normalizeTemplate);
-            set({ templates, isLoading: false });
+            set({
+              templates,
+              isLoading: false,
+              currentPage: result.page ?? page,
+              totalPages: result.totalPages ?? 1,
+              totalCount: result.total ?? templates.length,
+            });
           } else {
             throw new Error(result.error || '获取模板失败');
           }
         } catch (error) {
           console.error('获取模板失败:', error);
-          set({ 
+          set({
             error: error instanceof Error ? error.message : '获取模板失败',
-            isLoading: false 
+            isLoading: false
           });
         }
       },
@@ -357,6 +375,24 @@ export const useTemplateStore = create<TemplateStore>()((set) => ({
             item.id === id ? { ...item, publishRequestStatus: 'pending' } : item
           ),
         }));
+      },
+
+      loadTemplateById: async (id: number) => {
+        const token = useUserStore.getState().token;
+        if (!token) throw new Error('未登录');
+
+        const response = await fetch(`/api/templates/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error || '加载模板失败');
+
+        const template = normalizeTemplate(result.data);
+        set((state) => ({
+          currentTemplate: template,
+          templates: state.templates.map((t) => (t.id === id ? { ...t, ...template } : t)),
+        }));
+        return template;
       },
 
       setCurrentTemplate: (template) => {

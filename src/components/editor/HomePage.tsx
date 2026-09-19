@@ -9,10 +9,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Plus, 
   FileText, 
-  Table, 
   Upload, 
-  FileSpreadsheet, 
-  Presentation,
   Crown,
   ChevronRight,
   Search,
@@ -29,9 +26,11 @@ import { presetTemplates, templateCategories } from '@/data/presetTemplates';
 import { PresetTemplate } from '@/types/editor';
 import { usePrintSDK } from '@/hooks/usePrintSDK';
 import { FeishuEnvStatus } from '@/lib/feishu-env';
+import { cn } from '@/lib/utils';
 import { TemplateSidebar } from './TemplateSidebar';
 import { TemplateThumbnail } from './TemplateThumbnail';
 import { AIGenerateTemplateDialog } from './AIGenerateTemplateDialog';
+import { ImportTemplateDialog } from './dialogs/ImportTemplateDialog';
 import { UserTemplate } from '@/store/templateStore';
 
 interface HomePageProps {
@@ -45,14 +44,11 @@ interface HomePageProps {
   onDeleteAccount?: () => Promise<void>;
 }
 
-// 创建方式卡片
+// 创建方式卡片（前三个为可用功能，其余已下线）
 const createOptions = [
-  { icon: Plus, title: '创建排版', description: '空白自定义排版', action: 'create' },
-  { icon: Sparkles, title: 'AI生成模板', description: '智能生成专业排版', action: 'ai-generate' },
-  { icon: Upload, title: '导入排版', description: '导入已有排版文件', action: 'import' },
-  { icon: FileText, title: '创建文档模板', description: 'Word格式模板', action: 'docx' },
-  { icon: FileSpreadsheet, title: '创建表格模板', description: 'Excel格式模板', action: 'excel' },
-  { icon: Presentation, title: '创建幻灯片模板', description: 'PPT格式模板', action: 'ppt' },
+  { icon: Plus, title: '创建排版', description: '空白自定义排版', action: 'create', color: 'from-blue-500 to-sky-400' },
+  { icon: Sparkles, title: 'AI生成模板', description: '智能生成专业排版', action: 'ai-generate', color: 'from-violet-500 to-purple-500' },
+  { icon: Upload, title: '导入排版', description: '导入已有排版文件', action: 'import', color: 'from-emerald-500 to-green-400' },
 ];
 
 // 环境状态显示组件
@@ -96,6 +92,7 @@ export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, 
   const [searchQuery, setSearchQuery] = useState('');
   const [showDebug, setShowDebug] = useState(false);
   const [isAIGenerateDialogOpen, setIsAIGenerateDialogOpen] = useState(false);
+  const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   
   const { 
     isLoading, 
@@ -130,6 +127,8 @@ export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, 
       onCreateNew();
     } else if (action === 'ai-generate') {
       setIsAIGenerateDialogOpen(true);
+    } else if (action === 'import') {
+      setIsImportDialogOpen(true);
     } else {
       alert(`${action} 功能开发中...`);
     }
@@ -271,7 +270,7 @@ export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, 
         )}
 
         {/* 创建方式卡片 */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-12">
+        <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-4 mb-12">
           {createOptions.map((option) => (
             <Card
               key={option.action}
@@ -279,8 +278,11 @@ export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, 
               onClick={() => handleCreateAction(option.action)}
             >
               <div className="flex flex-col items-center text-center gap-2">
-                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-                  <option.icon className="w-6 h-6 text-primary" />
+                <div className={cn(
+                  'w-12 h-12 rounded-xl bg-gradient-to-br text-white shadow-sm flex items-center justify-center group-hover:scale-105 transition-transform',
+                  option.color
+                )}>
+                  <option.icon className="w-6 h-6" />
                 </div>
                 <div>
                   <p className="font-medium text-sm">{option.title}</p>
@@ -383,6 +385,13 @@ export function HomePage({ onCreateNew, onSelectTemplate, onSelectUserTemplate, 
       <AIGenerateTemplateDialog
         open={isAIGenerateDialogOpen}
         onOpenChange={setIsAIGenerateDialogOpen}
+        fields={fields.map((field) => ({ name: field.name, type: field.type, fieldKind: field.fieldKind }))}
+        tableName={tableName}
+        onUseTemplate={onUseGeneratedTemplate}
+      />
+      <ImportTemplateDialog
+        open={isImportDialogOpen}
+        onOpenChange={setIsImportDialogOpen}
         fields={fields.map((field) => ({ name: field.name, type: field.type, fieldKind: field.fieldKind }))}
         tableName={tableName}
         onUseTemplate={onUseGeneratedTemplate}

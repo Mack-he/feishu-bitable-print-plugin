@@ -27,64 +27,64 @@ export const HoverToolbar: React.FC<HoverToolbarProps> = React.memo(({ onEdit, o
 
   return (
     <div className={`transition-opacity duration-200 ${isSelected ? 'opacity-100' : 'opacity-0'}`}>
-      <div className="flex items-center bg-white border rounded-md shadow-md px-1.5 py-1 gap-0.5">
+      <div className="flex items-center gap-0.5 rounded-xl border bg-popover px-1 py-1 text-popover-foreground shadow-lg">
         {/* 编辑按钮 */}
-        <Button
-          variant="default"
-          size="icon"
-          className="h-6 w-6 bg-blue-500 hover:bg-blue-600"
+        <button
+          type="button"
+          className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg bg-primary px-2 text-xs font-medium text-primary-foreground outline-none transition-colors hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring/40"
           onClick={handleEditClick}
           title="编辑表格"
         >
           <Pencil className="w-3.5 h-3.5" />
-        </Button>
+          编辑
+        </button>
         
         {/* 分隔线 */}
-        <div className="w-px h-4 bg-gray-200" />
+        <div className="mx-1 h-4 w-px bg-border" />
         
         {/* 操作按钮：从右到左排列 */}
         {/* 隐藏按钮（禁用） */}
         <Button
           variant="ghost"
           size="icon"
-          className="h-5 w-5 text-muted-foreground"
+          className="h-7 w-7 rounded-lg text-muted-foreground"
           disabled
           title="隐藏"
         >
-          <EyeOff className="w-3 h-3" />
+          <EyeOff className="w-3.5 h-3.5" />
         </Button>
         
         {/* 复制按钮 */}
         <Button
           variant="ghost"
           size="icon"
-          className="h-5 w-5"
+          className="h-7 w-7 rounded-lg text-foreground/70 hover:bg-muted hover:text-foreground"
           onClick={handleCopyClick}
           title="复制"
         >
-          <Copy className="w-3 h-3" />
+          <Copy className="w-3.5 h-3.5" />
         </Button>
         
         {/* 组件属性按钮（禁用） */}
         <Button
           variant="ghost"
           size="icon"
-          className="h-5 w-5 text-muted-foreground"
+          className="h-7 w-7 rounded-lg text-muted-foreground"
           disabled
           title="组件属性"
         >
-          <Settings className="w-3 h-3" />
+          <Settings className="w-3.5 h-3.5" />
         </Button>
         
         {/* 删除按钮 */}
         <Button
           variant="ghost"
           size="icon"
-          className="h-5 w-5 text-destructive hover:text-destructive"
+          className="h-7 w-7 rounded-lg text-destructive hover:bg-destructive/10 hover:text-destructive"
           onClick={handleDeleteClick}
           title="删除"
         >
-          <Trash2 className="w-3 h-3" />
+          <Trash2 className="w-3.5 h-3.5" />
         </Button>
       </div>
     </div>

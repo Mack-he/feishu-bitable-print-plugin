@@ -46,7 +46,7 @@ const MAX_TEXT_LENGTH = 3000;
 const MAX_TABLE_ROWS = 60;
 const MAX_TABLE_COLS = 14;
 
-const COMPONENT_TYPES = ['text', 'heading', 'paragraph', 'list', 'table', 'line', 'qrcode', 'barcode'] as const;
+const COMPONENT_TYPES = ['text', 'heading', 'paragraph', 'list', 'table', 'line', 'qrcode', 'barcode', 'checkbox'] as const;
 
 const LAYOUT_LABELS: Record<string, string> = {
   single: '单栏布局：从上到下单列排布，标题居中，正文左对齐',
@@ -283,6 +283,16 @@ function normalizeComponent(raw: any, index: number): any | null {
       if (!content) return null;
       return { id, type: 'barcode', content, format: typeof raw.format === 'string' ? raw.format : 'CODE128' };
     }
+    case 'checkbox':
+      return {
+        id,
+        type: 'checkbox',
+        size: clamp(Math.round(toNumber(raw.size, 24)), 10, 120),
+        checked: Boolean(raw.checked),
+        borderColor: normalizeColor(raw.borderColor, '#000000'),
+        borderWidth: clamp(toNumber(raw.borderWidth, 1.5), 1, 4),
+        align: normalizeAlign(raw.align, 'left'),
+      };
     default:
       return null;
   }

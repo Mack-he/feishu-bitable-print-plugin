@@ -309,6 +309,38 @@ const renderComponent = (component: any, styleConfig: any): React.ReactNode => {
         </div>
       );
       
+    case 'checkbox': {
+      const checkboxSize = Math.max(10, Math.min(Number(component.size) || 24, 48));
+      return (
+        <div
+          key={id}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: component.align === 'center' ? 'center' : component.align === 'right' ? 'flex-end' : 'flex-start',
+            padding: '6px',
+          }}
+        >
+          <div
+            style={{
+              width: checkboxSize,
+              height: checkboxSize,
+              border: `${component.borderWidth || 1.5}px solid ${component.borderColor || '#000000'}`,
+              borderRadius: 2,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: Math.round(checkboxSize * 0.72),
+              lineHeight: 1,
+              boxSizing: 'border-box',
+            }}
+          >
+            {component.checked ? '✓' : ''}
+          </div>
+        </div>
+      );
+    }
+      
     case 'line': {
       const lineColor = component.color || '#000000';
       const lineThickness = component.thickness || 1;

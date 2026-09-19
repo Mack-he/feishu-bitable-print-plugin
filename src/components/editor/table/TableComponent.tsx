@@ -317,20 +317,34 @@ export const TableComponent: React.FC<TableComponentProps> = ({
                         )}
                         
                         {isEditing ? (
-                          <input
-                            type="text"
-                            value={cell}
-                            onChange={(e) => handleCellChange(rowIndex, colIndex, e.target.value)}
-                            onClick={(e) => e.stopPropagation()}
-                            style={{ 
-                              width: '100%', 
-                              border: 'none', 
-                              background: 'transparent', 
-                              outline: 'none',
-                              fontSize: '14px',
-                            }}
-                            placeholder=""
-                          />
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="text"
+                              value={cell}
+                              onChange={(e) => handleCellChange(rowIndex, colIndex, e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                              style={{ 
+                                width: '100%', 
+                                border: 'none', 
+                                background: 'transparent', 
+                                outline: 'none',
+                                fontSize: '14px',
+                              }}
+                              placeholder=""
+                            />
+                            <button
+                              type="button"
+                              title="插入复选框"
+                              className="flex-shrink-0 text-xs text-gray-400 hover:text-gray-700 px-0.5"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCellChange(rowIndex, colIndex, cell + '□');
+                              }}
+                            >
+                              □
+                            </button>
+                          </div>
                         ) : (
                           <span style={{ color: 'transparent' }}>•</span>
                         )}

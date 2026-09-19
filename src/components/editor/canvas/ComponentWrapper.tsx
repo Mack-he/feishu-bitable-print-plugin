@@ -71,7 +71,7 @@ export function ComponentWrapper({
           {...listeners}
           className="
             p-1.5 rounded-md cursor-grab active:cursor-grabbing
-            bg-gray-100 hover:bg-gray-200 text-gray-500 hover:text-gray-700
+            bg-muted hover:bg-accent text-muted-foreground hover:text-foreground
             transition-colors
           "
         >
@@ -83,8 +83,8 @@ export function ComponentWrapper({
           variant="ghost"
           size="icon"
           className="
-            w-8 h-8
-            bg-red-50 hover:bg-red-100 text-red-500 hover:text-red-700
+            w-8 h-8 rounded-md
+            bg-destructive/10 hover:bg-destructive/15 text-destructive
             transition-colors
           "
           onClick={handleDelete}

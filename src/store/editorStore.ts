@@ -303,6 +303,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         newComponent.thickness = 1;
         newComponent.style = 'solid';
         break;
+      case 'checkbox':
+        newComponent.size = 24;
+        newComponent.checked = false;
+        newComponent.borderColor = '#000000';
+        newComponent.borderWidth = 1.5;
+        newComponent.align = 'left';
+        break;
       default:
         newComponent.type = 'text';
         newComponent.content = '未知组件';

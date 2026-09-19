@@ -8,7 +8,7 @@
  * 且应用可见范围覆盖目标用户；否则会返回权限错误，被 FeishuContactPermissionError 标记。
  */
 
-import { asc, eq, inArray, sql } from 'drizzle-orm';
+import { asc, eq, inArray, or, sql } from 'drizzle-orm';
 import { db } from '@/lib/db';
 import { departments, userDepartments, users } from '@/lib/db/schema';
 import { getSystemConfig } from '@/lib/system-config';
@@ -127,6 +127,194 @@ export async function resolveUserIdByUnionId(unionId: string): Promise<string | 
   return data?.user?.user_id || null;
 }
 
+export interface FeishuContactUser {
+  userId: string | null;
+  unionId: string | null;
+  openId: string | null;
+  name: string | null;
+  avatarUrl: string | null;
+  email: string | null;
+}
+
+/**
+ * 拉取某部门下的通讯录用户（分页）
+ * 需要通讯录「用户基本信息」读取权限（contact:user.base:readonly）；
+ * 权限不足时抛 FeishuContactPermissionError，由调用方决定降级处理
+ */
+export async function fetchUsersByDepartment(departmentId: string, maxPages = 10): Promise<FeishuContactUser[]> {
+  const usersOut: FeishuContactUser[] = [];
+  let pageToken: string | undefined;
+
+  for (let page = 0; page < maxPages; page++) {
+    const data = await contactRequest<{
+      items?: Array<{
+        user_id?: string;
+        union_id?: string;
+        open_id?: string;
+        name?: string;
+        avatar?: { url?: string };
+        email?: string;
+      }>;
+      page_token?: string;
+      has_more?: boolean;
+    }>('/contact/v3/users/find_by_department', {
+      department_id: departmentId,
+      user_id_type: 'user_id',
+      department_id_type: OPEN_DEPARTMENT_ID_TYPE,
+      page_size: '50',
+      ...(pageToken ? { page_token: pageToken } : {}),
+    });
+
+    for (const item of data?.items || []) {
+      usersOut.push({
+        userId: item.user_id || null,
+        unionId: item.union_id || null,
+        openId: item.open_id || null,
+        name: item.name || null,
+        avatarUrl: item.avatar?.url || null,
+        email: item.email || null,
+      });
+    }
+
+    pageToken = data?.has_more ? data.page_token : undefined;
+    if (!pageToken) break;
+  }
+
+  return usersOut;
+}
+
+/** 通讯录人员 upsert 的批大小 */
+const CONTACT_USER_BATCH = 200;
+/** 单次同步最多遍历的部门数（防极端组织架构把同步拖爆） */
+const MAX_CONTACT_DEPARTMENTS = 300;
+
+/**
+ * 把飞书通讯录人员 upsert 进 users 表
+ * 匹配键：feishu_user_id 优先，其次 feishu_union_id（登录回调按 union_id 匹配，不会重复建号）；
+ * 不写部门归属——归属由 syncDepartmentsFromFeishu 里既有的「用户部门刷新」步骤覆盖式完成
+ */
+async function upsertContactUsers(
+  usersFromFeishu: FeishuContactUser[],
+  syncedAt: Date
+): Promise<{ inserted: number; updated: number; skipped: number }> {
+  let inserted = 0;
+  let updated = 0;
+  let skipped = 0;
+
+  // 同一个人可能出现在多个部门，按稳定标识去重
+  const seen = new Set<string>();
+  const unique: FeishuContactUser[] = [];
+  for (const user of usersFromFeishu) {
+    const key = user.userId || user.unionId || user.openId;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(user);
+  }
+
+  for (let i = 0; i < unique.length; i += CONTACT_USER_BATCH) {
+    const batch = unique.slice(i, i + CONTACT_USER_BATCH);
+    const userIds = batch.map((user) => user.userId).filter((id): id is string => !!id);
+    const unionIds = batch.map((user) => user.unionId).filter((id): id is string => !!id);
+
+    const existingRows = await db
+      .select({
+        id: users.id,
+        feishuUserId: users.feishuUserId,
+        feishuUnionId: users.feishuUnionId,
+      })
+      .from(users)
+      .where(
+        or(
+          userIds.length > 0 ? inArray(users.feishuUserId, userIds) : undefined,
+          unionIds.length > 0 ? inArray(users.feishuUnionId, unionIds) : undefined
+        )
+      );
+
+    const byUserId = new Map(
+      existingRows.filter((row) => row.feishuUserId).map((row) => [row.feishuUserId, row])
+    );
+    const byUnionId = new Map(
+      existingRows.filter((row) => row.feishuUnionId).map((row) => [row.feishuUnionId, row])
+    );
+
+    for (const user of batch) {
+      // 没有可用稳定标识就跳过（应用权限受限时 user_id 可能为空）
+      const feishuUserId = user.userId || user.unionId;
+      if (!feishuUserId) {
+        skipped += 1;
+        continue;
+      }
+
+      const match = (user.userId && byUserId.get(user.userId)) || (user.unionId && byUnionId.get(user.unionId));
+      if (match) {
+        const updateFields: Record<string, unknown> = {
+          feishuUserId: user.userId || match.feishuUserId,
+          updatedAt: syncedAt,
+        };
+        if (user.unionId) updateFields.feishuUnionId = user.unionId;
+        if (user.openId) updateFields.feishuOpenId = user.openId;
+        if (user.name !== null) updateFields.name = user.name;
+        if (user.avatarUrl !== null) updateFields.avatar = user.avatarUrl;
+        if (user.email !== null) updateFields.email = user.email;
+        await db.update(users).set(updateFields).where(eq(users.id, match.id));
+        updated += 1;
+      } else {
+        await db.insert(users).values({
+          feishuUserId,
+          feishuUnionId: user.unionId,
+          feishuOpenId: user.openId,
+          name: user.name,
+          avatar: user.avatarUrl,
+          email: user.email,
+          createdAt: syncedAt,
+          updatedAt: syncedAt,
+        });
+        inserted += 1;
+      }
+    }
+  }
+
+  return { inserted, updated, skipped };
+}
+
+/**
+ * 遍历部门拉取通讯录人员并 upsert 进 users 表
+ * 权限不足（未开通用户信息读取）时降级：跳过人员同步，不阻断部门同步
+ */
+async function syncContactUsers(
+  tree: FeishuDepartmentNode[],
+  syncedAt: Date
+): Promise<DepartmentSyncResult['contactUserSync']> {
+  const departmentsToScan = tree.slice(0, MAX_CONTACT_DEPARTMENTS);
+  const allUsers: FeishuContactUser[] = [];
+
+  try {
+    for (const node of departmentsToScan) {
+      const usersInDepartment = await fetchUsersByDepartment(node.feishuDepartmentId);
+      allUsers.push(...usersInDepartment);
+    }
+  } catch (error) {
+    if (error instanceof FeishuContactPermissionError) {
+      return {
+        fetched: 0,
+        inserted: 0,
+        updated: 0,
+        skipped: 0,
+        departmentCount: 0,
+        permissionError: error.message,
+      };
+    }
+    throw error;
+  }
+
+  const { inserted, updated, skipped } = await upsertContactUsers(allUsers, syncedAt);
+  const fetched = new Set(
+    allUsers.map((user) => user.userId || user.unionId || user.openId).filter((id): id is string => !!id)
+  ).size;
+
+  return { fetched, inserted, updated, skipped, departmentCount: departmentsToScan.length, permissionError: null };
+}
+
 export interface FeishuDepartmentNode {
   /** open_department_id，作为存储键（与用户 department_ids 同类型） */
   feishuDepartmentId: string;
@@ -214,6 +402,21 @@ export interface DepartmentSyncResult {
   skippedUsers: Array<{ userId: number; name: string | null; reason: string }>;
   /** 失败总数，可能大于 skippedUsers.length */
   skippedUserCount: number;
+  /** 通讯录人员同步结果（把飞书通讯录人员 upsert 进 users 表，供模板授权按人选择） */
+  contactUserSync: {
+    /** 从飞书拉取到的去重人数 */
+    fetched: number;
+    /** 新增到 users 表的人数 */
+    inserted: number;
+    /** 更新已有记录的人数 */
+    updated: number;
+    /** 跳过的人数（没有 user_id 也没有 union_id） */
+    skipped: number;
+    /** 遍历拉取人员的部门数 */
+    departmentCount: number;
+    /** 权限不足时为错误提示，此时人员同步整体跳过（不阻断部门同步） */
+    permissionError: string | null;
+  };
   /** 用户部门关系的刷新进度（按 users.id 分页，可带 offset 续传） */
   userSync: {
     batchSize: number;
@@ -421,7 +624,12 @@ async function runDepartmentSync(options: DepartmentSyncOptions): Promise<Depart
       .where(eq(departments.id, localId));
   }
 
-  // 3. 同步用户 -> 部门（按 user_id 查询）
+  // 3. 通讯录人员同步：把飞书通讯录人员 upsert 进 users 表，
+  //    让模板授权可以按人选择（部门授权由 user_departments 判定，见 4 的归属刷新）
+  //    权限不足时降级跳过，不阻断部门同步
+  const contactUserSync = await syncContactUsers(tree, now);
+
+  // 4. 同步用户 -> 部门（按 user_id 查询）
   //    单批模式只刷一页，由调用方用 offset 续传；syncAllUsers 模式在这里循环到覆盖全部用户
   const [totalRow] = await db.select({ count: sql<number>`COUNT(*)` }).from(users);
   const totalUsers = Number(totalRow?.count || 0);
@@ -506,6 +714,7 @@ async function runDepartmentSync(options: DepartmentSyncOptions): Promise<Depart
     linkedUserCount,
     skippedUsers,
     skippedUserCount,
+    contactUserSync,
     userSync: {
       batchSize,
       offset,

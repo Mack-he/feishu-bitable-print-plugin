@@ -252,13 +252,17 @@ function TemplateItem({
 }
 
 export function TemplateSidebar({ onSelectTemplate, onCreateNew, onTemplateCreated, onLogout, onDeleteAccount }: TemplateSidebarProps) {
-  const { 
-    templates, 
+  const {
+    templates,
     currentTemplate,
-    saveTemplate, 
-    updateTemplate, 
-    deleteTemplate, 
-    setCurrentTemplate 
+    saveTemplate,
+    updateTemplate,
+    deleteTemplate,
+    setCurrentTemplate,
+    fetchTemplates,
+    currentPage,
+    totalPages,
+    totalCount,
   } = useTemplateStore();
   
   const { user } = useUserStore();
@@ -398,10 +402,14 @@ export function TemplateSidebar({ onSelectTemplate, onCreateNew, onTemplateCreat
   };
 
   // 处理选择模板
-  const handleSelectTemplate = (template: UserTemplate) => {
-    console.log('[TemplateSidebar] 选择模板:', template);
-    setCurrentTemplate(template);
-    onSelectTemplate?.(template);
+  const handleSelectTemplate = async (template: UserTemplate) => {
+    try {
+      const fullTemplate = await useTemplateStore.getState().loadTemplateById(template.id);
+      onSelectTemplate?.(fullTemplate);
+    } catch (error) {
+      console.error('[TemplateSidebar] 加载模板失败:', error);
+      alert(error instanceof Error ? error.message : '加载模板失败');
+    }
   };
 
   // 打开编辑对话框
@@ -492,6 +500,30 @@ export function TemplateSidebar({ onSelectTemplate, onCreateNew, onTemplateCreat
               ))
             )}
           </div>
+
+          {/* 分页控件 */}
+          {totalPages > 1 && !searchQuery && (
+            <div className="px-4 py-2 border-t border-gray-100 flex items-center justify-between">
+              <span className="text-xs text-gray-400">共 {totalCount} 条</span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => fetchTemplates(currentPage - 1)}
+                  disabled={currentPage <= 1}
+                  className="px-2 py-1 text-xs border rounded disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  上一页
+                </button>
+                <span className="text-xs text-gray-600">{currentPage} / {totalPages}</span>
+                <button
+                  onClick={() => fetchTemplates(currentPage + 1)}
+                  disabled={currentPage >= totalPages}
+                  className="px-2 py-1 text-xs border rounded disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-50"
+                >
+                  下一页
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 底部区域 - 显示用户信息 */}

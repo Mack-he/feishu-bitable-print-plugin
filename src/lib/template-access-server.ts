@@ -16,10 +16,16 @@ import {
 
 export type TemplateRow = typeof templates.$inferSelect;
 
+/**
+ * 列表场景的模板行：不含 data（大字段，可能几百 KB）。
+ * 列表接口不取 data，打开单个模板时由前端走 GET /api/templates/[id] 按需加载完整内容
+ */
+export type TemplateListRow = Omit<TemplateRow, 'data'>;
+
 export type TemplateSource = 'mine' | 'enterprise' | 'shared';
 
 export interface TemplateWithAccess {
-  template: TemplateRow;
+  template: TemplateListRow;
   access: TemplateAccess;
   source: TemplateSource;
   ownerName?: string | null;
@@ -89,7 +95,22 @@ export async function loadVisibleTemplates(userId: number): Promise<TemplateWith
   }
 
   const rows = await db
-    .select({ template: templates, ownerName: users.name })
+    .select({
+      template: {
+        id: templates.id,
+        userId: templates.userId,
+        name: templates.name,
+        description: templates.description,
+        thumbnail: templates.thumbnail,
+        isPublic: templates.isPublic,
+        visibility: templates.visibility,
+        status: templates.status,
+        sourceTemplateId: templates.sourceTemplateId,
+        createdAt: templates.createdAt,
+        updatedAt: templates.updatedAt,
+      },
+      ownerName: users.name,
+    })
     .from(templates)
     .leftJoin(users, eq(users.id, templates.userId))
     .where(or(...conditions))

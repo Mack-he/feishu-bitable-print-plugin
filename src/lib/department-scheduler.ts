@@ -208,6 +208,12 @@ export function summarizeDepartmentSyncResult(result: DepartmentSyncResult): str
     `部门 ${result.departmentCount} 个`,
     `更新 ${result.linkedUserCount}/${result.userSync.processed} 人`,
   ];
+  const contact = result.contactUserSync;
+  if (contact?.permissionError) {
+    parts.push('通讯录人员未同步（权限不足）');
+  } else if (contact && contact.fetched > 0) {
+    parts.push(`通讯录人员 ${contact.fetched} 人（新增 ${contact.inserted}、更新 ${contact.updated}）`);
+  }
   if (result.deactivatedDepartmentCount > 0) parts.push(`标记失效部门 ${result.deactivatedDepartmentCount} 个`);
   if (result.skippedUserCount > 0) parts.push(`失败 ${result.skippedUserCount} 人`);
   if (result.userSync.remaining > 0) parts.push(`剩余 ${result.userSync.remaining} 人下次继续`);

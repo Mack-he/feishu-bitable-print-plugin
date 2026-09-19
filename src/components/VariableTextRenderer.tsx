@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { VariableChip } from './VariableChip';
+import { BoxAwareText } from './BoxAwareText';
 import { AttachmentVariableChip } from './AttachmentVariableChip';
 import { AttachmentVariableTag } from '@/components/editor/variables/AttachmentVariableTag';
 import { TextVariableTag } from '@/components/editor/variables/TextVariableTag';
@@ -211,7 +212,7 @@ export const VariableTextRenderer: React.FC<VariableTextRendererProps> = ({
 
   // 检查是否包含变量
   if (!containsVariables(text)) {
-    return <Tag className={className}>{text}</Tag>;
+    return <Tag className={className}><BoxAwareText text={text} /></Tag>;
   }
 
   // 解析变量
@@ -228,7 +229,7 @@ export const VariableTextRenderer: React.FC<VariableTextRendererProps> = ({
     if (startIndex > lastIndex) {
       parts.push(
         <span key={`text-${index}`}>
-          {text.slice(lastIndex, startIndex)}
+          <BoxAwareText text={text.slice(lastIndex, startIndex)} />
         </span>
       );
     }
@@ -307,7 +308,7 @@ export const VariableTextRenderer: React.FC<VariableTextRendererProps> = ({
   if (lastIndex < text.length) {
     parts.push(
       <span key="text-final">
-        {text.slice(lastIndex)}
+        <BoxAwareText text={text.slice(lastIndex)} />
       </span>
     );
   }

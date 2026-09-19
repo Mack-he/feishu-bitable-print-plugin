@@ -8,10 +8,15 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { useEditorStore } from '@/store/editorStore';
 
 export function SettingsPanel() {
-  const { styleConfig, setStyleConfig } = useEditorStore();
+  const { styleConfig, setStyleConfig, selectedComponentId, components, updateComponent } = useEditorStore();
+
+  // 选中复选框组件时，显示方格大小与勾选状态设置
+  const selectedComponent = components.find((component: any) => component.id === selectedComponentId);
+  const checkboxComponent = selectedComponent?.type === 'checkbox' ? selectedComponent : null;
 
   return (
     <div className="p-3 space-y-4">
@@ -108,6 +113,41 @@ export function SettingsPanel() {
           </Select>
         </div>
       </div>
+
+      {/* 复选框组件设置（选中复选框时显示） */}
+      {checkboxComponent && (
+        <div className="pt-3 border-t space-y-4">
+          <div>
+            <h3 className="font-medium text-sm">复选框设置</h3>
+            <p className="text-xs text-muted-foreground mt-1">方格保持正方形等比缩放</p>
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs">方格大小 (px)</Label>
+            <Select
+              value={String(checkboxComponent.size ?? 24)}
+              onValueChange={(value) => updateComponent(checkboxComponent.id, { size: Number(value) })}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {[12, 16, 20, 24, 28, 32, 40, 48, 60].map((size) => (
+                  <SelectItem key={size} value={size.toString()}>
+                    {size} × {size}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center justify-between">
+            <Label className="text-xs">勾选状态</Label>
+            <Switch
+              checked={Boolean(checkboxComponent.checked)}
+              onCheckedChange={(checked) => updateComponent(checkboxComponent.id, { checked })}
+            />
+          </div>
+        </div>
+      )}
 
       {/* 说明 */}
       <div className="pt-3 border-t">

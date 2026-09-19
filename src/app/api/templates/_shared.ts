@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { verifyToken } from '@/lib/auth';
 import { ensureDepartmentScheduler } from '@/lib/department-scheduler';
 import type { TemplateAccess } from '@/lib/template-access';
-import type { TemplateRow, TemplateSource } from '@/lib/template-access-server';
+import type { TemplateListRow, TemplateRow, TemplateSource } from '@/lib/template-access-server';
 
 /**
  * 模板接口共用逻辑
@@ -33,7 +33,8 @@ export interface SerializedTemplate {
   name: string;
   description: string | null;
   thumbnail: string | null;
-  data: unknown;
+  /** 列表接口不查 data（大字段），只有单条接口才会带上；前端按需用 GET /api/templates/[id] 补齐 */
+  data?: unknown;
   visibility: string;
   status: string;
   source: TemplateSource;
@@ -49,7 +50,7 @@ export interface SerializedTemplate {
 }
 
 export function serializeTemplate(
-  template: TemplateRow,
+  template: TemplateRow | TemplateListRow,
   access: TemplateAccess,
   options: { source?: TemplateSource; ownerName?: string | null; publishRequestStatus?: string | null } = {}
 ): SerializedTemplate {
@@ -59,7 +60,9 @@ export function serializeTemplate(
     name: template.name,
     description: template.description,
     thumbnail: template.thumbnail,
-    data: template.data,
+    // 列表查询（TemplateListRow）不带 data 字段，此时序列化为 undefined；
+    // 单条查询（TemplateRow）正常携带
+    data: 'data' in template ? template.data : undefined,
     visibility: template.visibility,
     status: template.status,
     source: options.source ?? (access.isOwner ? 'mine' : access.isEnterprise ? 'enterprise' : 'shared'),

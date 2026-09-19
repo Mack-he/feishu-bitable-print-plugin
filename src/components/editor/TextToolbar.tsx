@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Bold,
   Italic,
@@ -9,7 +9,6 @@ import {
   AlignCenter,
   AlignRight,
   AlignJustify,
-  Type,
   Palette,
   Highlighter,
   Link2,
@@ -20,21 +19,32 @@ import {
   Minus,
   Plus,
   MoreHorizontal,
+  ChevronDown,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Slider } from '@/components/ui/slider';
+import {
+  ToolbarShell,
+  ToolbarGroup,
+  ToolbarDivider,
+  ToolbarButton,
+  ColorSwatchGrid,
+} from './ToolbarKit';
 import { ComponentTextStyle } from '@/types/editor';
+import { cn } from '@/lib/utils';
 
 interface TextToolbarProps {
   textStyle: ComponentTextStyle;
   onChange: (style: Partial<ComponentTextStyle>) => void;
   onIncreaseFontSize?: () => void;
   onDecreaseFontSize?: () => void;
+  /** 并入外部工具栏外壳时使用，不再自绘描边与投影 */
+  embedded?: boolean;
 }
 
 // 字体大小选项
@@ -52,12 +62,26 @@ const BG_COLORS = [
   '#FFF3CD', '#D1ECF1', '#D4EDDA', '#F8D7DA', '#E2E3E5',
 ];
 
+const BG_COLOR_OPTIONS = BG_COLORS.map((color) => ({
+  value: color,
+  label: color === 'transparent' ? '无填充' : color,
+}));
+
 export function TextToolbar({
   textStyle,
   onChange,
   onIncreaseFontSize,
   onDecreaseFontSize,
+  embedded = false,
 }: TextToolbarProps) {
+  const [fontSizeMenuOpen, setFontSizeMenuOpen] = useState(false);
+  const [textColorMenuOpen, setTextColorMenuOpen] = useState(false);
+  const [bgColorMenuOpen, setBgColorMenuOpen] = useState(false);
+
+  const lineHeight = textStyle.lineHeight || 1.5;
+  const paragraphSpacing = textStyle.paragraphSpacing || 0;
+  const textColor = textStyle.color || '#000000';
+
   // 加粗
   const toggleBold = useCallback(() => {
     onChange({ bold: !textStyle.bold });
@@ -71,9 +95,9 @@ export function TextToolbar({
   // 下划线
   const toggleUnderline = useCallback(() => {
     const newUnderline = !textStyle.underline;
-    onChange({ 
+    onChange({
       underline: newUnderline,
-      textDecoration: newUnderline ? 'underline' : 'none' 
+      textDecoration: newUnderline ? 'underline' : 'none'
     });
   }, [textStyle.underline, onChange]);
 
@@ -85,16 +109,19 @@ export function TextToolbar({
   // 字体大小
   const setFontSize = useCallback((size: number) => {
     onChange({ fontSize: size });
+    setFontSizeMenuOpen(false);
   }, [onChange]);
 
   // 颜色
   const setColor = useCallback((color: string) => {
     onChange({ color });
+    setTextColorMenuOpen(false);
   }, [onChange]);
 
   // 背景色
   const setBackgroundColor = useCallback((color: string) => {
     onChange({ backgroundColor: color === 'transparent' ? undefined : color });
+    setBgColorMenuOpen(false);
   }, [onChange]);
 
   // 标题
@@ -117,357 +144,281 @@ export function TextToolbar({
 
   // 行高
   const increaseLineHeight = useCallback(() => {
-    const current = textStyle.lineHeight || 1.5;
-    onChange({ lineHeight: Math.min(3, current + 0.1) });
-  }, [textStyle.lineHeight, onChange]);
+    onChange({ lineHeight: Math.min(3, Math.round((lineHeight + 0.1) * 10) / 10) });
+  }, [lineHeight, onChange]);
 
   const decreaseLineHeight = useCallback(() => {
-    const current = textStyle.lineHeight || 1.5;
-    onChange({ lineHeight: Math.max(1, current - 0.1) });
-  }, [textStyle.lineHeight, onChange]);
+    onChange({ lineHeight: Math.max(1, Math.round((lineHeight - 0.1) * 10) / 10) });
+  }, [lineHeight, onChange]);
 
   // 段后间距
   const increaseParagraphSpacing = useCallback(() => {
-    const current = textStyle.paragraphSpacing || 0;
-    onChange({ paragraphSpacing: Math.min(50, current + 2) });
-  }, [textStyle.paragraphSpacing, onChange]);
+    onChange({ paragraphSpacing: Math.min(50, paragraphSpacing + 2) });
+  }, [paragraphSpacing, onChange]);
 
   const decreaseParagraphSpacing = useCallback(() => {
-    const current = textStyle.paragraphSpacing || 0;
-    onChange({ paragraphSpacing: Math.max(0, current - 2) });
-  }, [textStyle.paragraphSpacing, onChange]);
+    onChange({ paragraphSpacing: Math.max(0, paragraphSpacing - 2) });
+  }, [paragraphSpacing, onChange]);
 
   return (
-    <div className="flex flex-wrap items-center gap-1 p-2 bg-white border rounded-lg shadow-sm">
-      {/* 字体大小 */}
-      <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
+    <ToolbarShell variant={embedded ? 'plain' : 'panel'}>
+      {/* 字号：减 / 当前值 / 加 收在一个控件里 */}
+      <ToolbarGroup className="h-8 items-center rounded-lg border px-0.5">
+        <ToolbarButton
+          className="h-7 w-7 rounded-md"
           onClick={onDecreaseFontSize}
-          title="减小字体"
+          title="减小字号"
         >
-          <Minus className="w-4 h-4" />
-        </Button>
+          <Minus className="h-3.5 w-3.5" />
+        </ToolbarButton>
 
-        <DropdownMenu>
+        <DropdownMenu open={fontSizeMenuOpen} onOpenChange={setFontSizeMenuOpen}>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="h-8 px-2 text-sm">
-              <Type className="w-4 h-4 mr-1" />
-              <span className="min-w-[40px]">{textStyle.fontSize}</span>
-            </Button>
+            <ToolbarButton
+              className="h-7 w-auto min-w-11 gap-0.5 rounded-md px-1.5"
+              title="字号"
+              aria-label="字号"
+            >
+              <span className="text-xs font-semibold tabular-nums">{textStyle.fontSize}</span>
+              <ChevronDown className="h-3 w-3 opacity-50" />
+            </ToolbarButton>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <div className="grid grid-cols-5 gap-1 p-1">
+          <DropdownMenuContent align="start" className="w-[172px] p-1.5">
+            <div className="grid grid-cols-5 gap-0.5">
               {FONT_SIZES.map((size) => (
-                <DropdownMenuItem
-                key={size}
-                onClick={() => setFontSize(size)}
-                className="justify-center text-sm"
-              >
-                {size}
-              </DropdownMenuItem>
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => setFontSize(size)}
+                  className={cn(
+                    'h-8 rounded-lg text-xs tabular-nums transition-colors',
+                    'hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40',
+                    size === textStyle.fontSize
+                      ? 'bg-primary/10 font-semibold text-primary'
+                      : 'text-foreground/80',
+                  )}
+                >
+                  {size}
+                </button>
               ))}
             </div>
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
+        <ToolbarButton
+          className="h-7 w-7 rounded-md"
           onClick={onIncreaseFontSize}
-          title="增大字体"
+          title="增大字号"
         >
-          <Plus className="w-4 h-4" />
-        </Button>
-      </div>
+          <Plus className="h-3.5 w-3.5" />
+        </ToolbarButton>
+      </ToolbarGroup>
 
-      <div className="w-px h-6 bg-border mx-1" />
+      <ToolbarDivider />
 
       {/* 文本样式 */}
-      <div className="flex items-center gap-1">
-        <Button
-          variant={textStyle.bold ? "default" : "ghost"}
-          size="icon"
-          className="h-8 w-8"
-          onClick={toggleBold}
-          title="加粗"
-        >
-          <Bold className="w-4 h-4" />
-        </Button>
+      <ToolbarGroup>
+        <ToolbarButton active={textStyle.bold} onClick={toggleBold} title="加粗">
+          <Bold className="h-4 w-4" />
+        </ToolbarButton>
 
-        <Button
-          variant={textStyle.italic ? "default" : "ghost"}
-          size="icon"
-          className="h-8 w-8"
-          onClick={toggleItalic}
-          title="斜体"
-        >
-          <Italic className="w-4 h-4" />
-        </Button>
+        <ToolbarButton active={textStyle.italic} onClick={toggleItalic} title="斜体">
+          <Italic className="h-4 w-4" />
+        </ToolbarButton>
 
-        <Button
-          variant={textStyle.underline ? "default" : "ghost"}
-          size="icon"
-          className="h-8 w-8"
-          onClick={toggleUnderline}
-          title="下划线"
-        >
-          <Underline className="w-4 h-4" />
-        </Button>
-      </div>
+        <ToolbarButton active={textStyle.underline} onClick={toggleUnderline} title="下划线">
+          <Underline className="h-4 w-4" />
+        </ToolbarButton>
+      </ToolbarGroup>
 
-      <div className="w-px h-6 bg-border mx-1" />
+      <ToolbarDivider />
 
       {/* 颜色 */}
-      <div className="flex items-center gap-1">
-        <DropdownMenu>
+      <ToolbarGroup>
+        <DropdownMenu open={textColorMenuOpen} onOpenChange={setTextColorMenuOpen}>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" title="文字颜色">
-              <Palette className="w-4 h-4" />
-            </Button>
+            <ToolbarButton title="文字颜色">
+              <span className="relative flex h-8 w-8 items-center justify-center">
+                <Palette className="h-4 w-4 -translate-y-[3px]" />
+                <span
+                  className="absolute bottom-1 left-1/2 h-[3px] w-3.5 -translate-x-1/2 rounded-full ring-1 ring-inset ring-black/10"
+                  style={{ backgroundColor: textColor }}
+                />
+              </span>
+            </ToolbarButton>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <div className="p-2">
-              <p className="text-xs text-muted-foreground mb-2">文字颜色</p>
-              <div className="grid grid-cols-7 gap-1">
-                {COLORS.map((color) => (
-                  <button
-                    key={color}
-                    onClick={() => setColor(color)}
-                    className="w-6 h-6 rounded border"
-                    style={{ backgroundColor: color, borderColor: textStyle.color === color ? '#000' : '#ddd' }}
-                  />
-                ))}
-              </div>
-            </div>
+          <DropdownMenuContent align="start" className="p-2">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">文字颜色</p>
+            <ColorSwatchGrid colors={COLORS.map((color) => ({ value: color }))} value={textColor} onChange={setColor} />
           </DropdownMenuContent>
         </DropdownMenu>
 
-        <DropdownMenu>
+        <DropdownMenu open={bgColorMenuOpen} onOpenChange={setBgColorMenuOpen}>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" title="背景颜色">
-              <Highlighter className="w-4 h-4" />
-            </Button>
+            <ToolbarButton title="背景颜色">
+              <span className="relative flex h-8 w-8 items-center justify-center">
+                <Highlighter className="h-4 w-4 -translate-y-[3px]" />
+                <span
+                  className="absolute bottom-1 left-1/2 h-[3px] w-3.5 -translate-x-1/2 rounded-full ring-1 ring-inset ring-black/10"
+                  style={
+                    textStyle.backgroundColor
+                      ? { backgroundColor: textStyle.backgroundColor }
+                      : { background: 'repeating-linear-gradient(45deg, #e5e5e5 0 2px, transparent 2px 4px)' }
+                  }
+                />
+              </span>
+            </ToolbarButton>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <div className="p-2">
-              <p className="text-xs text-muted-foreground mb-2">背景颜色</p>
-              <div className="grid grid-cols-6 gap-1">
-                {BG_COLORS.map((color) => (
-                  <button
-                    key={color}
-                    onClick={() => setBackgroundColor(color)}
-                    className="w-6 h-6 rounded border"
-                    style={{ 
-                      backgroundColor: color === 'transparent' ? '#fff' : color, 
-                      borderColor: textStyle.backgroundColor === color ? '#000' : '#ddd' 
-                    }}
-                  />
-                ))}
-              </div>
-            </div>
+          <DropdownMenuContent align="start" className="p-2">
+            <p className="mb-2 text-xs font-medium text-muted-foreground">背景颜色</p>
+            <ColorSwatchGrid
+              colors={BG_COLOR_OPTIONS}
+              value={textStyle.backgroundColor || 'transparent'}
+              onChange={setBackgroundColor}
+              columns={6}
+            />
           </DropdownMenuContent>
         </DropdownMenu>
-      </div>
+      </ToolbarGroup>
 
-      <div className="w-px h-6 bg-border mx-1" />
+      <ToolbarDivider />
 
       {/* 插入链接 */}
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-8 w-8"
-        onClick={insertLink}
-        title="插入链接"
-      >
-        <Link2 className="w-4 h-4" />
-      </Button>
+      <ToolbarButton onClick={insertLink} title="插入链接">
+        <Link2 className="h-4 w-4" />
+      </ToolbarButton>
 
-      <div className="w-px h-6 bg-border mx-1" />
+      <ToolbarDivider />
 
-      {/* 标题 */}
-      <div className="flex items-center gap-1">
-        <Button
-          variant={textStyle.headingLevel === 1 ? "default" : "ghost"}
-          size="icon"
-          className="h-8 w-8"
+      {/* 段落：标题与列表 */}
+      <ToolbarGroup>
+        <ToolbarButton
+          active={textStyle.headingLevel === 1}
           onClick={() => setHeading(textStyle.headingLevel === 1 ? null : 1)}
           title="一级标题"
         >
-          <Heading1 className="w-4 h-4" />
-        </Button>
+          <Heading1 className="h-4 w-4" />
+        </ToolbarButton>
 
-        <Button
-          variant={textStyle.headingLevel === 2 ? "default" : "ghost"}
-          size="icon"
-          className="h-8 w-8"
+        <ToolbarButton
+          active={textStyle.headingLevel === 2}
           onClick={() => setHeading(textStyle.headingLevel === 2 ? null : 2)}
           title="二级标题"
         >
-          <Heading2 className="w-4 h-4" />
-        </Button>
-      </div>
+          <Heading2 className="h-4 w-4" />
+        </ToolbarButton>
 
-      <div className="w-px h-6 bg-border mx-1" />
-
-      {/* 对齐 */}
-      <div className="flex items-center gap-1">
-        <Button
-          variant={textStyle.align === 'left' ? "default" : "ghost"}
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => setAlign('left')}
-          title="左对齐"
-        >
-          <AlignLeft className="w-4 h-4" />
-        </Button>
-
-        <Button
-          variant={textStyle.align === 'center' ? "default" : "ghost"}
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => setAlign('center')}
-          title="居中"
-        >
-          <AlignCenter className="w-4 h-4" />
-        </Button>
-
-        <Button
-          variant={textStyle.align === 'right' ? "default" : "ghost"}
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => setAlign('right')}
-          title="右对齐"
-        >
-          <AlignRight className="w-4 h-4" />
-        </Button>
-
-        <Button
-          variant={textStyle.align === 'justify' ? "default" : "ghost"}
-          size="icon"
-          className="h-8 w-8"
-          onClick={() => setAlign('justify')}
-          title="两端对齐"
-        >
-          <AlignJustify className="w-4 h-4" />
-        </Button>
-      </div>
-
-      <div className="w-px h-6 bg-border mx-1" />
-
-      {/* 列表 */}
-      <div className="flex items-center gap-1">
-        <Button
-          variant={textStyle.listType === 'unordered' ? "default" : "ghost"}
-          size="icon"
-          className="h-8 w-8"
+        <ToolbarButton
+          active={textStyle.listType === 'unordered'}
           onClick={() => setListType(textStyle.listType === 'unordered' ? null : 'unordered')}
           title="无序列表"
         >
-          <List className="w-4 h-4" />
-        </Button>
+          <List className="h-4 w-4" />
+        </ToolbarButton>
 
-        <Button
-          variant={textStyle.listType === 'ordered' ? "default" : "ghost"}
-          size="icon"
-          className="h-8 w-8"
+        <ToolbarButton
+          active={textStyle.listType === 'ordered'}
           onClick={() => setListType(textStyle.listType === 'ordered' ? null : 'ordered')}
           title="有序列表"
         >
-          <ListOrdered className="w-4 h-4" />
-        </Button>
-      </div>
+          <ListOrdered className="h-4 w-4" />
+        </ToolbarButton>
+      </ToolbarGroup>
 
-      <div className="w-px h-6 bg-border mx-1" />
+      <ToolbarDivider />
 
-      {/* 更多选项 */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-8 w-8" title="更多选项">
-            <MoreHorizontal className="w-4 h-4" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-64">
-          <div className="p-3 space-y-4">
-            {/* 行高 */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium">行高</span>
-                <span className="text-xs text-muted-foreground">{textStyle.lineHeight || 1.5}</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={decreaseLineHeight}
-                  title="减小行高"
-                >
-                  <Minus className="w-3 h-3" />
-                </Button>
-                <input
-                  type="range"
-                  min="1"
-                  max="3"
-                  step="0.1"
-                  value={textStyle.lineHeight || 1.5}
-                  onChange={(e) => onChange({ lineHeight: parseFloat(e.target.value) })}
-                  className="flex-1"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={increaseLineHeight}
-                  title="增大行高"
-                >
-                  <Plus className="w-3 h-3" />
-                </Button>
-              </div>
+      {/* 对齐 */}
+      <ToolbarGroup>
+        <ToolbarButton
+          active={textStyle.align === 'left'}
+          onClick={() => setAlign('left')}
+          title="左对齐"
+        >
+          <AlignLeft className="h-4 w-4" />
+        </ToolbarButton>
+
+        <ToolbarButton
+          active={textStyle.align === 'center'}
+          onClick={() => setAlign('center')}
+          title="居中"
+        >
+          <AlignCenter className="h-4 w-4" />
+        </ToolbarButton>
+
+        <ToolbarButton
+          active={textStyle.align === 'right'}
+          onClick={() => setAlign('right')}
+          title="右对齐"
+        >
+          <AlignRight className="h-4 w-4" />
+        </ToolbarButton>
+
+        <ToolbarButton
+          active={textStyle.align === 'justify'}
+          onClick={() => setAlign('justify')}
+          title="两端对齐"
+        >
+          <AlignJustify className="h-4 w-4" />
+        </ToolbarButton>
+      </ToolbarGroup>
+
+      <ToolbarDivider />
+
+      {/* 更多：行高与段后间距 */}
+      <Popover>
+        <PopoverTrigger asChild>
+          <ToolbarButton title="行高与段后间距">
+            <MoreHorizontal className="h-4 w-4" />
+          </ToolbarButton>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-64 space-y-4 p-3">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium">行高</span>
+              <span className="text-xs tabular-nums text-muted-foreground">{lineHeight.toFixed(1)}</span>
             </div>
-
-            {/* 段后间距 */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium">段后间距</span>
-                <span className="text-xs text-muted-foreground">{textStyle.paragraphSpacing || 0}px</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={decreaseParagraphSpacing}
-                  title="减小间距"
-                >
-                  <Minus className="w-3 h-3" />
-                </Button>
-                <input
-                  type="range"
-                  min="0"
-                  max="50"
-                  step="2"
-                  value={textStyle.paragraphSpacing || 0}
-                  onChange={(e) => onChange({ paragraphSpacing: parseInt(e.target.value) })}
-                  className="flex-1"
-                />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={increaseParagraphSpacing}
-                  title="增大间距"
-                >
-                  <Plus className="w-3 h-3" />
-                </Button>
-              </div>
+            <div className="flex items-center gap-2">
+              <ToolbarButton className="h-6 w-6 rounded-md" onClick={decreaseLineHeight} title="减小行高">
+                <Minus className="h-3 w-3" />
+              </ToolbarButton>
+              <Slider
+                className="flex-1"
+                min={1}
+                max={3}
+                step={0.1}
+                value={[lineHeight]}
+                onValueChange={([value]) => onChange({ lineHeight: Math.round(value * 10) / 10 })}
+              />
+              <ToolbarButton className="h-6 w-6 rounded-md" onClick={increaseLineHeight} title="增大行高">
+                <Plus className="h-3 w-3" />
+              </ToolbarButton>
             </div>
           </div>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium">段后间距</span>
+              <span className="text-xs tabular-nums text-muted-foreground">{paragraphSpacing}px</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <ToolbarButton className="h-6 w-6 rounded-md" onClick={decreaseParagraphSpacing} title="减小间距">
+                <Minus className="h-3 w-3" />
+              </ToolbarButton>
+              <Slider
+                className="flex-1"
+                min={0}
+                max={50}
+                step={2}
+                value={[paragraphSpacing]}
+                onValueChange={([value]) => onChange({ paragraphSpacing: value })}
+              />
+              <ToolbarButton className="h-6 w-6 rounded-md" onClick={increaseParagraphSpacing} title="增大间距">
+                <Plus className="h-3 w-3" />
+              </ToolbarButton>
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
+    </ToolbarShell>
   );
 }

@@ -2,6 +2,7 @@
 
 import React, { useMemo } from 'react';
 import { VariableRenderer, VariableConfig, detectFieldType, VariableType } from './VariableRenderer';
+import { BoxAwareText } from '@/components/BoxAwareText';
 
 // 混合内容片段类型
 export type ContentSegment = 
@@ -47,8 +48,8 @@ export function MixedContentRenderer({
     <span className={className} style={style}>
       {segments.map((segment, index) => {
         if (segment.type === 'text') {
-          // 纯文本片段
-          return <span key={index}>{segment.content}</span>;
+          // 纯文本片段（方框字符渲染为打勾方框）
+          return <span key={index}><BoxAwareText text={segment.content} /></span>;
         } else {
           // 变量片段
           const fieldName = segment.fieldName;
